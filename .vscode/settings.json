@@ -1,0 +1,32 @@
+{
+  // 🐍 Pipenv + entorno
+  "python.terminal.activateEnvironment": true,
+  "python.envFile": "${workspaceFolder}/backend/.env",
+  // 🔎 Type checking (Pylance)
+  "python.analysis.typeCheckingMode": "basic",
+  // 🧹 Linting con Ruff (nuevo sistema)
+  "ruff.enable": true,
+  "ruff.lint.enable": true,
+  "ruff.format.enable": false,
+  // 🎨 Formato con Black
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "editor.formatOnSave": true,
+  // 🧪 Tests (si se usa Pytest)
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "backend"
+  ],
+  // 🧠 Cosas del editor
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "editor.tabSize": 4,
+  "editor.detectIndentation": false,
+  //Intérprete de Python
+  "python.defaultInterpreterPath": "C:\\Users\\Usuario\\Desktop\\fhir-gateway-viewer-lite\\apps\\api\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "apps/api/src"
+  ]
+}

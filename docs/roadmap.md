@@ -1,5 +1,3 @@
-# Roadmap
-(placeholder)
 # FHIR Mini-Gateway + EHR-lite Viewer — Roadmap
 
 ## Project overview

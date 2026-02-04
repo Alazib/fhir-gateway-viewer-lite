@@ -24,7 +24,7 @@ This structure is designed for a **modular monolith** with a **hexagonal/clean a
 │  ├─ adr/
 │  │  ├─ ADR-0000-template.md
 │  │  ├─ ADR-0001-repo-structure.md
-│  │  └─ (más ADRs…)
+│  │  └─ (more ADRs…)
 │  └─ api/
 │     ├─ openapi-public.md
 │     └─ examples/
@@ -92,7 +92,7 @@ This structure is designed for a **modular monolith** with a **hexagonal/clean a
 │  │  │     │  └─ cli/
 │  │  │     ├─ catalogs/
 │  │  │     │  ├─ loinc_min.json
-│  │  │     │  └─ conditions_min.json  (evitar dependencias externas)
+│  │  │     │  └─ conditions_min.json  (avoid external dependencies)
 │  │  │     └─ config/
 │  │  │        ├─ settings.py
 │  │  │        └─ logging.py
@@ -118,7 +118,7 @@ This structure is designed for a **modular monolith** with a **hexagonal/clean a
 │     │  │  └─ client.ts
 │     │  └─ charts/
 │     └─ tests/
-│        └─ (opcionales)
+│        └─ (opcionals)
 └─ .vscode/
    ├─ settings.json
    └─ extensions.json

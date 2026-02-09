@@ -6,13 +6,13 @@ from fhir_gateway.domain.value_objects.resource_id import ResourceId
 ####################################VALID CASES:
 
 
-# ResourceId("pat-001") es válido.
+# ResourceId("pat-001") is valid.
 def test_resource_id_accepts_non_empty_string():
     rid = ResourceId("pat-001")
     assert rid.value == "pat-001"
 
 
-# ResourceId(" pat-001 ") limpia espacios en blanco.
+# ResourceId(" pat-001 ") trims white spaces.
 def test_resource_id_trims_whitespace():
     rid = ResourceId(" pat-001 ")
     assert rid.value == "pat-001"
@@ -21,19 +21,19 @@ def test_resource_id_trims_whitespace():
 ####################################NOT VALID CASES:
 
 
-# ResourceId("") lanza DomainValidationError.
+# ResourceId("") throws DomainValidationError.
 def test_resource_id_rejects_empty_string():
     with pytest.raises(DomainValidationError):
         ResourceId("")
 
 
-# ResourceId(" ") lanza DomainValidationError.
+# ResourceId(" ") throws DomainValidationError.
 def test_resource_id_rejects_whitespace_only():
     with pytest.raises(DomainValidationError):
         ResourceId("   ")
 
 
-# ResourceId(123) lanza DomainValidationError.
+# ResourceId(123) throws DomainValidationError.
 def test_resource_id_rejects_non_string_and_exposes_context():
     with pytest.raises(DomainValidationError) as exc:
         ResourceId(123)  # type: ignore

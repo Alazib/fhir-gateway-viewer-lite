@@ -3,6 +3,9 @@ from fhir_gateway.domain.errors import DomainValidationError
 from fhir_gateway.domain.value_objects.resource_id import ResourceId
 
 
+####################################VALID CASES:
+
+
 # ResourceId("pat-001") es válido.
 def test_resource_id_accepts_non_empty_string():
     rid = ResourceId("pat-001")
@@ -13,6 +16,9 @@ def test_resource_id_accepts_non_empty_string():
 def test_resource_id_trims_whitespace():
     rid = ResourceId(" pat-001 ")
     assert rid.value == "pat-001"
+
+
+####################################NOT VALID CASES:
 
 
 # ResourceId("") lanza DomainValidationError.

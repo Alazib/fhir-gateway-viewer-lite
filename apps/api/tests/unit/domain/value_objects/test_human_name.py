@@ -102,7 +102,7 @@ def test_rejects_given_is_not_a_list():
     with pytest.raises(DomainValidationError) as exc:
         HumanName(given=1234)  # type: ignore
 
-    assert exc.value.field == "given"
+    assert exc.value.field == "HumanName.given"
     assert exc.value.message == "must be a list or a tuple"
 
 
@@ -122,7 +122,7 @@ def test_rejects_no_string_family():
     with pytest.raises(DomainValidationError) as exc:
         HumanName(given=["Ana"], family=123)  # type: ignore
 
-    assert exc.value.field == "family"
+    assert exc.value.field == "HumanName.family"
     assert exc.value.message == "must be a string"
 
 
@@ -132,5 +132,5 @@ def test_rejects_no_string_text():
     with pytest.raises(DomainValidationError) as exc:
         HumanName(text=1234)  # type: ignore
 
-    assert exc.value.field == "text"
+    assert exc.value.field == "HumanName.text"
     assert exc.value.message == "must be a string"

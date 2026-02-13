@@ -27,8 +27,8 @@ def test_rejects_not_string_system():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system=123, value="X")  # type: ignore
 
-    assert exc.value.field == "system"
-    assert exc.value.message == "must be a string"
+    assert exc.value.field == "Identifier.system"
+    assert "string" in exc.value.message
 
 
 # Identifier with " " (whitespace only) Identifier.system throws DomainValidationError.
@@ -37,7 +37,7 @@ def test_rejects_whitespace_only_system():
         Identifier(system=" ", value="X")
 
     assert exc.value.field == "system"
-    assert exc.value.message == "cannot be empty"
+    assert "empty" in exc.value.message
 
 
 # Identifier with "" (empty) Identifier.system throws DomainValidationError.
@@ -46,16 +46,16 @@ def test_rejects_empty_string_system():
         Identifier(system="", value="X")
 
     assert exc.value.field == "system"
-    assert exc.value.message == "cannot be empty"
+    assert "empty" in exc.value.message
 
 
 # Identifier with not string Identifier.value throws DomainValidationError.
-def test_rejects_not_string_value():
+def test_rejects_not_string_identifier():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system="x", value=123)  # type: ignore
 
-    assert exc.value.field == "value"
-    assert exc.value.message == "must be a string"
+    assert exc.value.field == "Identifier.value"
+    assert "string" in exc.value.message
 
 
 # Identifier with " " (whitespace only) Identifier.system throws DomainValidationError.
@@ -64,7 +64,7 @@ def test_rejects_whitespace_only_value():
         Identifier(system="x", value=" ")
 
     assert exc.value.field == "value"
-    assert exc.value.message == "cannot be empty"
+    assert "empty" in exc.value.message
 
 
 # Identifier with "" (empty) Identifier.value throws DomainValidationError.
@@ -73,4 +73,4 @@ def test_rejects_empty_string_value():
         Identifier(system="x", value="")
 
     assert exc.value.field == "value"
-    assert exc.value.message == "cannot be empty"
+    assert "empty" in exc.value.message

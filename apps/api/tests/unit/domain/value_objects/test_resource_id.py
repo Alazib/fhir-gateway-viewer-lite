@@ -38,5 +38,5 @@ def test_resource_id_rejects_non_string_and_exposes_context():
     with pytest.raises(DomainValidationError) as exc:
         ResourceId(123)  # type: ignore
 
-    assert exc.value.field == "ResourceId"
+    assert exc.value.field == "ResourceId.value"
     assert "string" in exc.value.message

@@ -48,7 +48,7 @@ def test_rejects_not_string_system():
     with pytest.raises(DomainValidationError) as exc:
         Code(system=123, code="x")  # type: ignore
 
-    assert exc.value.field == "system"
+    assert exc.value.field == "Code.system"
     assert exc.value.message == "must be a string"
 
 
@@ -75,7 +75,7 @@ def test_rejects_not_string_code():
     with pytest.raises(DomainValidationError) as exc:
         Code(system="x", code=123)  # type: ignore
 
-    assert exc.value.field == "code"
+    assert exc.value.field == "Code.code"
     assert exc.value.message == "must be a string"
 
 
@@ -102,5 +102,5 @@ def test_rejects_not_string_display():
     with pytest.raises(DomainValidationError) as exc:
         Code(system="x", code="x", display=1234)  # type: ignore
 
-    assert exc.value.field == "display"
+    assert exc.value.field == "Code.display"
     assert exc.value.message == "must be a string"

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.domain.helpers.type_validator import type_validator
 
 
 @dataclass(frozen=True, slots=True)
@@ -9,8 +10,8 @@ class Code:
     display: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.system, str):
-            raise DomainValidationError("system", "must be a string")
+
+        type_validator(self, "system", str)
 
         cleaned = self.system.strip()
         if cleaned == "":
@@ -18,8 +19,7 @@ class Code:
 
         object.__setattr__(self, "system", cleaned)
 
-        if not isinstance(self.code, str):
-            raise DomainValidationError("code", "must be a string")
+        type_validator(self, "code", str)
 
         cleaned = self.code.strip()
         if cleaned == "":
@@ -29,11 +29,7 @@ class Code:
 
         if self.display is not None:
 
-            if not isinstance(self.display, str):
-                raise DomainValidationError("display", "must be a string")
+            type_validator(self, "display", str)
 
             cleaned = self.display.strip()
-            if cleaned == "":
-                object.__setattr__(self, "display", None)
-            else:
-                object.__setattr__(self, "display", cleaned)
+            object.__setattr__(self, "display", cleaned if cleaned != "" else None)

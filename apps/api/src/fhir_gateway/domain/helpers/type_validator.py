@@ -1,3 +1,4 @@
+from datetime import datetime
 from fhir_gateway.domain.errors import DomainValidationError
 
 
@@ -23,6 +24,7 @@ def type_validator(
             dict: "dictionary",
             tuple: "tuple",
             bool: "boolean",
+            datetime: "datetime",
         }
 
         expected_type_name = type_names_map.get(expected_type)

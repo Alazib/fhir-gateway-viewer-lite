@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.domain.helpers.normalizer import normalize_string
 from fhir_gateway.domain.helpers.type_validator import type_validator
 
 
@@ -12,16 +13,12 @@ class Identifier:
 
         type_validator(self, "system", str)
 
-        cleaned = self.system.strip()
-        if cleaned == "":
-            raise DomainValidationError("system", "cannot be empty")
+        cleaned_system = normalize_string(self, "system")
 
-        object.__setattr__(self, "system", cleaned)
+        object.__setattr__(self, "system", cleaned_system)
 
         type_validator(self, "value", str)
 
-        cleaned = self.value.strip()
-        if cleaned == "":
-            raise DomainValidationError("value", "cannot be empty")
+        cleaned_value = normalize_string(self, "value")
 
-        object.__setattr__(self, "value", cleaned)
+        object.__setattr__(self, "value", cleaned_value)

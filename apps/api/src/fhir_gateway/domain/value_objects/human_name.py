@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.domain.helpers.normalizer import normalize_string
 from fhir_gateway.domain.helpers.type_validator import type_validator
 
 
@@ -23,14 +24,18 @@ class HumanName:
     def __post_init__(self) -> None:
 
         if self.family is not None:
+
             type_validator(self, "family", str)
-            cleaned = self.family.strip()
-            object.__setattr__(self, "family", cleaned if cleaned != "" else None)
+
+            cleaned_family = normalize_string(self, "family", False)
+            object.__setattr__(self, "family", cleaned_family)
 
         if self.text is not None:
+
             type_validator(self, "text", str)
-            cleaned = self.text.strip()
-            object.__setattr__(self, "text", cleaned if cleaned != "" else None)
+
+            cleaned_text = normalize_string(self, "text", False)
+            object.__setattr__(self, "text", cleaned_text)
 
         if isinstance(self.given, str):
             raise DomainValidationError("given", "must be a list/tuple of strings")
@@ -40,10 +45,12 @@ class HumanName:
         if not all(isinstance(s, str) for s in self.given):
             raise DomainValidationError("given", "must be a list/tuple of strings")
 
-        cleaned_items = [s.strip() for s in self.given]
-        cleaned_items = [s for s in cleaned_items if s != ""]  # drop empties
+        cleaned_items = [string.strip() for string in self.given]
+        cleaned_items_and_no_empties = [
+            string for string in cleaned_items if string != ""
+        ]
 
-        list_to_tuple = tuple(cleaned_items)
+        list_to_tuple = tuple(cleaned_items_and_no_empties)
 
         object.__setattr__(self, "given", list_to_tuple)
 

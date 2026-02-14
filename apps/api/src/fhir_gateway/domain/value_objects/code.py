@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.domain.helpers.normalizer import normalize_string
 from fhir_gateway.domain.helpers.type_validator import type_validator
 
 
@@ -13,23 +14,20 @@ class Code:
 
         type_validator(self, "system", str)
 
-        cleaned = self.system.strip()
-        if cleaned == "":
-            raise DomainValidationError("system", "cannot be empty")
+        cleaned_system = normalize_string(self, "system")
 
-        object.__setattr__(self, "system", cleaned)
+        object.__setattr__(self, "system", cleaned_system)
 
         type_validator(self, "code", str)
 
-        cleaned = self.code.strip()
-        if cleaned == "":
-            raise DomainValidationError("code", "cannot be empty")
+        cleaned_code = normalize_string(self, "code")
 
-        object.__setattr__(self, "code", cleaned)
+        object.__setattr__(self, "code", cleaned_code)
 
         if self.display is not None:
 
             type_validator(self, "display", str)
 
-            cleaned = self.display.strip()
-            object.__setattr__(self, "display", cleaned if cleaned != "" else None)
+            cleaned_display = normalize_string(self, "display", False)
+
+            object.__setattr__(self, "display", cleaned_display)

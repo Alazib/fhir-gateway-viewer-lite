@@ -3,7 +3,10 @@ from fhir_gateway.domain.errors import DomainValidationError
 
 def normalize_string(
     instance: object, attribute_name: str, attribute_required: bool = True
-) -> str | None:
+) -> (
+    str | None
+):  # If an object attribute is NOT REQUIRED "normalize_string()"" must have "atrribute_required = FALSE" in order
+    # to avoid an error (... cannot be empty) when the value is empty
 
     value = instance.__getattribute__(attribute_name)
     value_cleaned = value.strip() if value else ""

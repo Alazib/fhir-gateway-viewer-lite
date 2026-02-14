@@ -14,11 +14,9 @@ class Code:
         type_validator(self, "system", str)
 
         cleaned_system = normalize_string(self, "system")
-
         object.__setattr__(self, "system", cleaned_system)
 
         type_validator(self, "code", str)
-
         cleaned_code = normalize_string(self, "code")
 
         object.__setattr__(self, "code", cleaned_code)
@@ -28,5 +26,4 @@ class Code:
             type_validator(self, "display", str)
 
             cleaned_display = normalize_string(self, "display", False)
-
             object.__setattr__(self, "display", cleaned_display)

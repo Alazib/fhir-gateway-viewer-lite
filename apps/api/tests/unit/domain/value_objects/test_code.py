@@ -57,7 +57,7 @@ def test_rejects_whitespace_only_system():
     with pytest.raises(DomainValidationError) as exc:
         Code(system=" ", code="x")
 
-    assert exc.value.field == "system"
+    assert exc.value.field == "Code.system"
     assert exc.value.message == "cannot be empty"
 
 
@@ -66,7 +66,7 @@ def test_rejects_empty_string_system():
     with pytest.raises(DomainValidationError) as exc:
         Code(system="", code="x")
 
-    assert exc.value.field == "system"
+    assert exc.value.field == "Code.system"
     assert exc.value.message == "cannot be empty"
 
 
@@ -84,7 +84,7 @@ def test_rejects_whitespace_only_code():
     with pytest.raises(DomainValidationError) as exc:
         Code(system="x", code=" ")
 
-    assert exc.value.field == "code"
+    assert exc.value.field == "Code.code"
     assert exc.value.message == "cannot be empty"
 
 
@@ -93,7 +93,7 @@ def test_rejects_empty_string_code():
     with pytest.raises(DomainValidationError) as exc:
         Code(system="x", code="")
 
-    assert exc.value.field == "code"
+    assert exc.value.field == "Code.code"
     assert exc.value.message == "cannot be empty"
 
 

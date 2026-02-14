@@ -23,14 +23,20 @@ def test_resource_id_trims_whitespace():
 
 # ResourceId("") throws DomainValidationError.
 def test_resource_id_rejects_empty_string():
-    with pytest.raises(DomainValidationError):
+    with pytest.raises(DomainValidationError) as exc:
         ResourceId("")
+
+    assert exc.value.field == "ResourceId.value"
+    assert "empty" in exc.value.message
 
 
 # ResourceId(" ") throws DomainValidationError.
 def test_resource_id_rejects_whitespace_only():
-    with pytest.raises(DomainValidationError):
+    with pytest.raises(DomainValidationError) as exc:
         ResourceId("   ")
+
+    assert exc.value.field == "ResourceId.value"
+    assert "empty" in exc.value.message
 
 
 # ResourceId(123) throws DomainValidationError.

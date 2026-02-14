@@ -36,7 +36,7 @@ def test_rejects_whitespace_only_system():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system=" ", value="X")
 
-    assert exc.value.field == "system"
+    assert exc.value.field == "Identifier.system"
     assert "empty" in exc.value.message
 
 
@@ -45,7 +45,7 @@ def test_rejects_empty_string_system():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system="", value="X")
 
-    assert exc.value.field == "system"
+    assert exc.value.field == "Identifier.system"
     assert "empty" in exc.value.message
 
 
@@ -63,7 +63,7 @@ def test_rejects_whitespace_only_value():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system="x", value=" ")
 
-    assert exc.value.field == "value"
+    assert exc.value.field == "Identifier.value"
     assert "empty" in exc.value.message
 
 
@@ -72,5 +72,5 @@ def test_rejects_empty_string_value():
     with pytest.raises(DomainValidationError) as exc:
         Identifier(system="x", value="")
 
-    assert exc.value.field == "value"
+    assert exc.value.field == "Identifier.value"
     assert "empty" in exc.value.message

@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from dataclasses import dataclass, field
-
 from fhir_gateway.domain.errors import DomainValidationError
 from fhir_gateway.domain.helpers.normalizer import normalize_string
 from fhir_gateway.domain.helpers.type_validator import type_validator
@@ -51,7 +49,6 @@ class HumanName:
         ]
 
         list_to_tuple = tuple(cleaned_items_and_no_empties)
-
         object.__setattr__(self, "given", list_to_tuple)
 
         if self.text is None:

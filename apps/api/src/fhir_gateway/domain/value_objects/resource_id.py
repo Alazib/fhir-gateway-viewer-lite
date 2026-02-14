@@ -12,5 +12,4 @@ class ResourceId:
         type_validator(self, "value", str)
 
         cleaned_value = normalize_string(self, "value")
-
         object.__setattr__(self, "value", cleaned_value)

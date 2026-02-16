@@ -8,8 +8,8 @@ def type_validator(
     expected_type: type | tuple[type, ...],
     optional_error_message: (
         str | None
-    ) = None,  # All the validations with "expected_type: tuple[type,...]" require an optional_error_message in order to avoid a final
-    # error message such as "...must be a None"
+    ) = None,  # All the validations with "expected_type: tuple[type,...]" or other "expected_type" with a type not listed in "type_names_map"
+    # require an optional_error_message in order to avoid a final error message such as "...must be a None"
 ) -> None:
     class_name = instance.__class__.__name__
     value = instance.__getattribute__(attribute_name)

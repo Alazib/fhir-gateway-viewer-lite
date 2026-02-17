@@ -27,3 +27,4 @@ We introduce a domain Value Object `Instant` that:
    - Rejected: mixed timezones increase complexity in serialization and debugging.
 2. Accept naive datetimes assuming a default timezone (e.g., Europe/Madrid)
    - Rejected: introduces silent data corruption for data originating from other systems/timezones.
+

@@ -1,39 +1,39 @@
 {
-  // 🐍 Pipenv + entorno
+  // 🐍 Python / Pipenv
   "python.terminal.activateEnvironment": true,
-  "python.envFile": "${workspaceFolder}/backend/.env",
+  "python.defaultInterpreterPath": "C:\\Users\\Usuario\\Desktop\\fhir-gateway-viewer-lite\\apps\\api\\.venv\\Scripts\\python.exe",
   // 🔎 Type checking (Pylance)
   "python.analysis.typeCheckingMode": "basic",
-  // 🧹 Linting con Ruff (nuevo sistema)
+  "python.analysis.extraPaths": [
+    "apps/api/src"
+  ],
+  // 🧪 Pytest
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.cwd": "${workspaceFolder}/apps/api",
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  // 🧹 Ruff
   "ruff.enable": true,
   "ruff.lint.enable": true,
   "ruff.format.enable": false,
-  // 🎨 Formato con Black
+  // 🎨 Formatting
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter"
   },
   "editor.formatOnSave": true,
-  // 🧪 Tests (si se usa Pytest)
-  "python.testing.pytestEnabled": true,
-  "python.testing.unittestEnabled": false,
-  "python.testing.pytestArgs": [
-    "backend"
-  ],
-  // 🧠 Cosas del editor
+  // 🧠 Editor
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
   "editor.tabSize": 4,
   "editor.detectIndentation": false,
-  //Intérprete de Python
-  "python.defaultInterpreterPath": "C:\\Users\\Usuario\\Desktop\\fhir-gateway-viewer-lite\\apps\\api\\.venv\\Scripts\\python.exe",
-  "python.analysis.extraPaths": [
-    "apps/api/src"
-],
-"python-envs.pythonProjects": [
+  // 📦 Python environments extension
+  "python-envs.pythonProjects": [
     {
-        "path": ".",
-        "envManager": "ms-python.python:pipenv",
-        "packageManager": "ms-python.python:pip"
+      "path": "apps/api",
+      "envManager": "ms-python.python:pipenv",
+      "packageManager": "ms-python.python:pip"
     }
-]
+  ]
 }

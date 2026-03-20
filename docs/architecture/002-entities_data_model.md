@@ -31,12 +31,13 @@ Identifiers are represented with `ResourceId` (string) in the domain. In a relat
 | Attribute | Domain type | Required | DB column(s) (suggested) | Key / constraint intent | Notes |
 |---|---|---:|---|---|---|
 | `id` | `ResourceId` | Yes | `id` (VARCHAR) | **PK** | Stable identifier for the patient resource. |
-| `identifier` | `Identifier \| None` | No | `identifier_system` (VARCHAR), `identifier_value` (VARCHAR) | Unique (optional) | External ID (MRN, national ID). Uniqueness may be enforced depending on use-case. |
+| `identifiers` | `tuple[Identifier, ...]` | No | `patient_identifier` (join table) | Unique per (system, value) | 0..* external identifiers (MRN, national id, insurer id). Stored immutable in domain; should be normalized in DB as a separate table. |
 | `name` | `HumanName \| None` | No | `name_text` (VARCHAR), `name_family` (VARCHAR), `name_given` (JSON/TEXT) | None | Domain supports structured/unstructured. Presentation formatting is outside domain. |
 
 **Domain constraints (MVP):**
 - `id` always required.
-- `identifier` and `name` are optional to keep MVP flexible for partial/synthetic data.
+- `identifiers` and `name` are optional to keep MVP flexible for partial/synthetic data.
+- `identifiers` must not contain duplicates (same `(system, value)`).
 
 ---
 

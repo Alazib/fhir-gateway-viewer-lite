@@ -31,7 +31,7 @@
   // 📦 Python environments extension
   "python-envs.pythonProjects": [
     {
-      "path": "apps/api",
+      "path": ".",
       "envManager": "ms-python.python:pipenv",
       "packageManager": "ms-python.python:pip"
     }

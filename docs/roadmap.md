@@ -29,7 +29,7 @@ This application is intentionally designed to remain small, iterative, and easy 
 
 This project is not a generic CRUD demo. It is built around common healthcare integration concerns:
 
-- **Resource-oriented clinical modeling** (Patient, Observation, Condition, Encounter, AuditEvent)
+- **Resource-oriented clinical modeling** (`Patient`, `Observation`, `Condition`, `Encounter`, `AuditEvent`)
 - **Semantic coding** (minimal terminology catalogs for observations/conditions), avoiding “free-text-only” clinical data
 - **Traceability** via **audit events** and **role-based access patterns** typically expected in regulated environments
 - **Synthetic data only**: no real patient data is used; the project includes reproducible generators/fixtures
@@ -66,7 +66,7 @@ The AI layer is therefore treated as an **engineering extension of a solid syste
 ### Functional objective
 Enable **consultation** of synthetic patients and visualization of:
 
-- clinical timeline (encounters, conditions, observations)
+- clinical timeline (`Encounter`, `Condition`, `Observation`)
 - biomarker time series (e.g., HbA1c)
 - export of a FHIR-like **Bundle JSON**
 
@@ -77,7 +77,7 @@ Build a project that demonstrates:
 - SQL persistence (PostgreSQL) and migrations
 - Layered design (Hexagonal/Clean) with ADRs for key decisions
 - JWT authentication and basic RBAC (Admin/Clinician)
-- Access auditing to clinical resources (minimal AuditEvent)
+- Access auditing to clinical resources (`AuditEvent`)
 - Strong documentation and domain modeling
 - Future AI integration designed on top of:
   - structured synthetic data
@@ -104,10 +104,11 @@ Work is organized as **phases** (GitHub Issues). Each phase may contain **sub-is
 The delivery order intentionally prioritizes:
 
 1. a stable domain
-2. a usable backend/API
-3. reproducible synthetic datasets
-4. a visible end-to-end viewer
-5. and only then an AI layer built on top of stable, structured, evaluable artifacts
+2. an application skeleton around that domain
+3. an executable backend with persistence
+4. reproducible synthetic datasets
+5. a visible end-to-end viewer
+6. and only then an AI layer built on top of stable, structured, evaluable artifacts
 
 This is deliberate: the project should first become a good software system, and then become a good AI-enabled system.
 
@@ -119,20 +120,20 @@ This is deliberate: the project should first become a good software system, and 
 **Objective:** Define the clinical core without framework dependencies.
 
 - Domain entities:
-  - Patient
-  - Observation
-  - Condition
-  - Encounter
-  - AuditEvent
+  - `Patient`
+  - `Observation`
+  - `Condition`
+  - `Encounter`
+  - `AuditEvent`
 - Value objects:
-  - ResourceId
-  - Identifier
-  - HumanName
-  - Code
-  - Quantity
-  - Instant
-  - Period
-  - Reference
+  - `ResourceId`
+  - `Identifier`
+  - `HumanName`
+  - `Code`
+  - `Quantity`
+  - `Instant`
+  - `Period`
+  - `Reference`
 - Basic invariants (MVP):
   - coding consistency
   - unit handling
@@ -147,41 +148,48 @@ This is deliberate: the project should first become a good software system, and 
   - `docs/architecture/002-entities_data_model.md`
 - Unit tests for key invariants
 - No FastAPI/SQLAlchemy dependencies in the domain layer
+- Phase 1 ADR/documentation completion pass finished
 
 ---
 
-### Phase 2 — ADR baseline and architectural skeleton
-**Objective:** Lock down foundational decisions and repository conventions.
+### Phase 2 — Application architecture skeleton
+**Objective:** Build the application-layer and repository skeleton around the completed domain model.
 
-- ADRs:
-  - repo structure
-  - Python dependency management (Pipenv)
-  - API stack
-  - FHIR-like scope
-  - auth strategy (JWT)
-  - RBAC model
-  - audit strategy
+
+The focus is to prepare the **architecture around the domain** so the backend can become executable in the next phase.
+
+- Define the application layer structure
+- Define use-case entry points / service layer boundaries
+- Define repository interfaces / ports around the domain
+- Define infrastructure package layout and wiring strategy
+- Align project conventions with the actual codebase
+- Clean obvious structural inconsistencies that would hinder the next phase
 
 **Definition of Done**
-- ADRs created and accepted
-- Consistent project conventions (naming, folder layout)
+- The post-domain project structure is clear and stable
+- Application-layer boundaries are defined
+- Repository/service interfaces are identified
+- Architectural conventions are coherent with the implemented domain
+- The project is ready to start the executable backend foundation without rethinking the structure again
 
 ---
 
 ### Phase 3 — Backend foundation
-**Objective:** Provide an executable API skeleton with persistence and configuration.
+**Objective:** Provide an executable backend skeleton with persistence and configuration.
 
 - FastAPI app structure
 - configuration
 - logging
-- Postgres + Alembic migrations
-- repository ports/adapters and DB session management
+- PostgreSQL + Alembic migrations
+- DB session management
+- concrete repository adapters
 - CI pipeline for linting + tests
 
 **Definition of Done**
 - API application boots correctly
 - CI runs lint + unit tests
 - `/health` and `/docs` available
+- Persistence infrastructure exists and is wired to the application structure defined in Phase 2
 
 ---
 
@@ -190,7 +198,7 @@ This is deliberate: the project should first become a good software system, and 
 
 - JWT issuance and verification
 - RBAC enforcement (Admin/Clinician) at the use-case boundary
-- AuditEvent capture for access to patient data and exports
+- `AuditEvent` capture for access to patient data and exports
 
 **Definition of Done**
 - Protected endpoints require valid JWT
@@ -251,7 +259,7 @@ This is deliberate: the project should first become a good software system, and 
 
 **Definition of Done**
 - Frontend consumes real API
-- Basic UX states: loading/empty/error
+- Basic UX states: loading / empty / error
 
 **AI-readiness notes**
 - The UI should keep a clean separation between:

@@ -29,7 +29,7 @@ This project is not a generic CRUD demo. It is built around common healthcare in
 
 ---
 
-## 2.2 Objectives
+## 2. Objectives
 
 ### Functional objective
 - Enable **consultation** of a synthetic patient and visualization of:
@@ -56,12 +56,33 @@ Work is organized as **phases** (GitHub Issues). Each phase may contain **sub-is
 
 ### Phase 1 — Domain modeling
 **Objective:** Define the clinical core without framework dependencies.
-- Domain entities: Patient, Observation, Condition, Encounter, AuditEvent
-- Value objects: Code, Quantity, Period
-- Basic invariants (MVP): coding consistency, unit handling, timeline coherence
+- Domain entities:
+  - Patient
+  - Observation
+  - Condition
+  - Encounter
+  - AuditEvent
+- Value objects:
+  - ResourceId
+  - Identifier
+  - HumanName
+  - Code
+  - Quantity
+  - Instant
+  - Period
+  - Reference
+- Basic invariants (MVP):
+  - coding consistency
+  - unit handling
+  - timeline coherence
+  - typed patient-centered references
+  - timezone-aware timestamps
+  - minimal audit consistency
 
 **Definition of Done**
-- Domain model documented (`docs/architecture/data-model.md`)
+- Domain model documented:
+  - `docs/architecture/001-value_objects_data_model.md`
+  - `docs/architecture/002-entities_data_model.md`
 - Unit tests for key invariants
 - No FastAPI/SQLAlchemy dependencies in the domain layer
 

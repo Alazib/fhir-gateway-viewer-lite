@@ -104,14 +104,15 @@ This document describes the **MVP clinical domain entities** for the project (FH
 |---|---|---:|---|---|---|
 | `id` | `ResourceId` | Yes | `audit_event.id VARCHAR` | **PK** | AuditEvent identifier. |
 | `recorded` | `Instant` | Yes | `audit_event.recorded_at TIMESTAMPTZ` | Not null | Normalized to UTC. |
-| `agent` | `str` | Yes | `audit_event.agent VARCHAR` | Not null | MVP: user/service identifier. Can be modeled later as a richer structure. |
-| `action` | `str` | Yes | `audit_event.action VARCHAR` | Not null | MVP: string. A constrained allow-list can be introduced later. |
+| `agent` | `str` | Yes | `audit_event.agent VARCHAR` | Not null | MVP: concrete user/service identifier, stored as normalized text. |
+| `action` | `AuditAction` | Yes | `audit_event.action VARCHAR` | Not null; candidate DB `CHECK` constraint or DB enum in persistence phase | Domain models action as a constrained enum, stored relationally as text. |
 | `entity` | `Reference` | Yes | `audit_event.entity_type VARCHAR`, `audit_event.entity_id VARCHAR` | Composite polymorphic reference; candidate composite index on `(entity_type, entity_id)` | Points to the accessed resource (Patient/Observation/Condition/Encounter, etc.). |
 
 **Domain constraints (MVP):**
 - `recorded` required.
+- `agent` required and non-empty.
+- `action` must be a valid `AuditAction`.
 - `entity` required.
-- `entity` is a typed reference (future hardening: restrict allowed resource types).
 
 ---
 
@@ -145,7 +146,8 @@ This document describes the **MVP clinical domain entities** for the project (FH
 - **Quantity.unit**: currently free-form string; should be hardened later (UCUM validation or curated allow-list).
 - **Observation.status**: already constrained in the domain via `ObservationStatus`; persistence phase may choose DB enum or `CHECK` constraint.
 - **Terminology**: `Code.system + code` can be constrained later via curated allow-list for demo scenarios (domain-level).
-- **AuditEvent.action**: currently free-form string in MVP; may later become an allow-list or enum.
+- **AuditEvent.action**: already constrained in the domain via `AuditAction`; persistence phase may choose DB enum or `CHECK` constraint.
+- **AuditEvent.agent**: remains free-form but normalized text in MVP; a future richer model could introduce a separate `agent_type` if needed.
 
 ---
 

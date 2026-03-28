@@ -35,7 +35,7 @@ To avoid repetitive validation code, VOs rely on:
 - **Invariants (two-mode):**
   - If `text` is present (after trim), it is valid as an unstructured name.
   - If `text` is missing/empty, then `given` must contain at least one non-empty item and `family` must be non-empty.
-- **Presentation note:** name rendering/formatting (text vs given+family or both) is handled in the presentation/mapper layer, not inside the VO (documented in Sub-issue C).
+- **Presentation note:** name rendering/formatting (text vs given+family or both) is handled in the presentation/mapper layer, not inside the VO.
 
 #### Instant
 - **Purpose:** A precise timestamp for clinical events and audit records.
@@ -50,7 +50,7 @@ To avoid repetitive validation code, VOs rely on:
 - **Purpose:** Typed pointer to another resource (e.g., `Observation.subject -> Patient/pat-001`).
 - **Fields:** `resource_type` (string), `id` (`ResourceId`).
 - **Invariants:** `resource_type` must be a non-empty string (trimmed); `id` must be a `ResourceId`.
-- **Hardening note:** `resource_type` will be constrained (allow-list or Enum) in a later hardening pass (Sub-issue C).
+- **Hardening note:** `resource_type` should be constrained later (allow-list or Enum) in a dedicated hardening pass.
 
 #### Quantity
 - **Purpose:** Numeric measurement with unit (used for biomarker values, etc.).
@@ -59,4 +59,4 @@ To avoid repetitive validation code, VOs rely on:
 - **Hardening note:** `unit` is currently free-form for MVP. It should be constrained in a later pass (e.g., UCUM allow-list / validation, or a curated demo allow-list aligned with biomarker scenarios).
 
 ### Next steps
-This section is intentionally concise. The full rationale, edge cases, and ADR-backed decisions for each VO (including future constraints and terminology policies) are completed in **Sub-issue C (Documentation + Tests)**.
+This section remains intentionally concise. The full rationale, important trade-offs, and ADR-backed decisions for the domain model are captured across the architecture documents and ADRs produced during Phase 1.

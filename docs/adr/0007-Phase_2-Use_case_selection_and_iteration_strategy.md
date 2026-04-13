@@ -32,49 +32,49 @@ These are the use-cases that must exist in the **first iteration** because they 
 ## CLINICAL CORE
 
 ### `SearchPatients`
-**What it does**
+**What it does**:
 Searches patients using a query-oriented contract suitable for patient discovery.
 
-**Why it is part of Iteration 1**
+**Why it is part of Iteration 1**:
 Without patient search, the viewer and API lose practical usability. This is the most basic entry-point into the product.
 
 ### `GetPatientSummary`
-**What it does**
+**What it does**:
 Builds a patient-centered clinical summary by aggregating:
 - patient information
 - conditions
 - encounters
 - observations
 
-**Why it is part of Iteration 1**
+**Why it is part of Iteration 1**:
 This is the central consultation use-case of the product. It is the backbone of the “mini EHR-lite viewer” concept and one of the strongest portfolio signals.
 
 ### `ListObservationsByCode`
-**What it does**
+**What it does**:
 Returns observations filtered by patient and code, enabling clinically useful structured consultation.
 
-**Why it is part of Iteration 1**
+**Why it is part of Iteration 1**:
 This gives the MVP real clinical structure and supports biomarker-oriented workflows without introducing premature specialization.
 
 ## INTEROPERABILITY
 
 ### `ExportPatientBundle`
-**What it does**
+**What it does**:
 Assembles a patient-centered FHIR-like export bundle from the relevant clinical resources.
 
-**Why it is part of Iteration 1**
+**Why it is part of Iteration 1**:
 This is one of the strongest interoperability signals in the whole project. It materially increases the professional value of the MVP.
 
 ## AUDIT / TRACEABILITY
 
 ### `ListAuditEvents`
-**What it does**
+**What it does**:
 Returns audit events for traceability review.
 
-**Why it is part of Iteration 1**
+**Why it is part of Iteration 1**:
 The project identity explicitly includes auditability and traceability as a professional signal. A persisted audit trail without any way to consult it would leave that value only half-realized.
 
-**Note**
+**Note**:
 This use-case should remain tightly scoped in Iteration 1:
 - minimal read/query behavior
 - no advanced admin reporting
@@ -107,49 +107,49 @@ These use-cases are useful, but they are not mandatory for the first iteration o
 ## CLINICAL CORE
 
 ### `GetBiomarkerTrend`
-**What it does**
+**What it does**:
 Returns a trend-oriented view of a biomarker across time, optimized for charting or interpretation.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 In Iteration 1, the necessary underlying data is already accessible through `ListObservationsByCode`. A dedicated trend use-case is valuable, but it is a refinement rather than a foundation.
 
 ### `ListConditionsForPatient`
-**What it does**
+**What it does**:
 Returns conditions for a patient in a focused, dedicated slice.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 Conditions are already accessible through `GetPatientSummary`. A separate dedicated slice improves granularity, but it is not necessary for the first MVP iteration.
 
 ### `ListEncountersForPatient`
-**What it does**
+**What it does**:
 Returns encounters for a patient in a focused, timeline-oriented slice.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 Encounters are already part of `GetPatientSummary`. A dedicated encounter slice is useful later, especially for UI/timeline refinement, but not essential in Iteration 1.
 
 ## INTEROPERABILITY
 
 ### `GetPatientBundlePreview`
-**What it does**
+**What it does**:
 Provides an inspectable/pre-export representation of the resource set that will later be exported.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 Useful, but secondary to the main export behavior.
 
 ## AUDIT / TRACEABILITY
 
 ### `GetPatientAccessHistory`
-**What it does**
+**What it does**:
 Returns the access history associated with a patient.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 This is a valuable traceability refinement, but it is not required for the MVP as long as basic audit event listing already exists.
 
 ### `ListUserActivity`
-**What it does**
+**What it does**:
 Returns access activity associated with a specific user/actor.
 
-**Why deferred to Iteration 2**
+**Why deferred to Iteration 2**:
 This is more admin/support-oriented than strictly MVP-critical.
 
 ---
@@ -159,17 +159,17 @@ This is more admin/support-oriented than strictly MVP-critical.
 ## ADMINISTRATION / SUPPORT
 
 ### `ExportAuditReport`
-**What it does**
+**What it does**:
 Exports audit-oriented data for support/admin/reporting purposes.
 
-**Why deferred to later iterations**
+**Why deferred to later iterations**:
 This is a useful portfolio enhancement, but not part of the first meaningful MVP.
 
 ### `GetAuditDashboardSummary`
-**What it does**
+**What it does**:
 Provides an aggregated overview of audit/traceability information.
 
-**Why deferred to later iterations**
+**Why deferred to later iterations**:
 This is useful for admin/reporting polish, but not necessary for the first iteration of a professionally valid MVP.
 
 ---

@@ -22,7 +22,7 @@ The initial application use-cases will be modeled as classes exposing an `execut
 **Example**
 - `SearchPatientsUseCase.execute(search_text: str)`
 
-**Why**
+**Why**:
 This makes dependencies explicit, fits well with clean/hexagonal architecture, and keeps the orchestration unit easy to test.
 
 ---
@@ -33,7 +33,7 @@ Ports required by use-cases are defined in the **application layer**.
 **Example**
 - `PatientSearchReader`
 
-**Why**
+**Why**:
 These abstractions exist because application use-cases need to retrieve or assemble data. They are not domain concepts or domain invariants by themselves.
 
 ---
@@ -48,7 +48,7 @@ Preferred:
 Not preferred as the first move:
 - `PatientRepository` with many unrelated methods
 
-**Why**
+**Why**:
 This reduces premature abstraction, keeps the first slice honest, and allows repository-like abstractions to emerge later only if repeated patterns justify them.
 
 ---
@@ -78,7 +78,10 @@ class SearchPatientsUseCase:
         ...
 
 
-**✅  Preferred initial contract:
+```
+
+**Example** **✅  Preferred initial contract:**
+```python
 class SearchPatientsUseCase:
     # The Use Case receives the primitive type (str) directly
     def execute(self, search_text: str):
@@ -87,7 +90,7 @@ class SearchPatientsUseCase:
         ...
 ```
 
-**Why**
+**Why**:
 The goal is discovery speed. Creating Query classes now is "speculative engineering": we are assuming the input will be complex before it actually is. If, in the future, the search requires 10 different filters, that will be the moment to evolve toward a Query object.
 
 ### 5. The first slice may return domain entities directly
@@ -96,7 +99,7 @@ For the first slice, returning domain entities directly is acceptable when the r
 **Example**
 - `tuple[Patient, ...]`
 
-**Why**
+**Why**:
 Here we are proposing pragmatism over the pure theory of Hexagonal Architecture. --> In very strict architectures, it is said that a Use Case should never return a Domain Entity (such as Patient) to the outside world (the controller or the API); instead, it should transform it into a DTO (Data Transfer Object). But, at this stage, introducing dedicated result DTOs would add complexity without enough evidence that they are necessary.
 
 ---
@@ -107,7 +110,7 @@ Application use-cases should be tested with fake implementations of their ports.
 **Example**
 - a fake `PatientSearchReader` used by `SearchPatientsUseCase`
 
-**Why**
+**Why**:
 This validates the dependency direction properly:
 - application depends on abstractions,
 - not on framework or persistence code.
@@ -123,7 +126,7 @@ The application layer should begin with a small, readable package structure.
 - `application/use_cases/`
 - `application/ports/`
 
-**Why**
+**Why**:
 This keeps the architecture understandable while still leaving room for future growth.
 
 ## Consequences

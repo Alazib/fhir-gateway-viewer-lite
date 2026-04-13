@@ -85,10 +85,10 @@ class SearchPatientsUseCase:
         # Use the data directly
         results = self.reader.find(search_text)
         ...
+```
 
 **Why**
 The goal is discovery speed. Creating Query classes now is "speculative engineering": we are assuming the input will be complex before it actually is. If, in the future, the search requires 10 different filters, that will be the moment to evolve toward a Query object.
----
 
 ### 5. The first slice may return domain entities directly
 For the first slice, returning domain entities directly is acceptable when the result shape is still simple and semantically aligned with the use-case.

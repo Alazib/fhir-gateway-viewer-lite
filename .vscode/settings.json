@@ -1,11 +1,11 @@
 {
   // 🐍 Python / Pipenv
   "python.terminal.activateEnvironment": true,
-  "python.defaultInterpreterPath": "C:\\Users\\Usuario\\Desktop\\fhir-gateway-viewer-lite\\apps\\api\\.venv\\Scripts\\python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}\\apps\\api\\.venv\\Scripts\\python.exe",
   // 🔎 Type checking (Pylance)
   "python.analysis.typeCheckingMode": "basic",
   "python.analysis.extraPaths": [
-    "apps/api/src"
+    "${workspaceFolder}/apps/api/src"
   ],
   // 🧪 Pytest
   "python.testing.pytestEnabled": true,

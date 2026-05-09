@@ -1,8 +1,3 @@
-﻿from fastapi import FastAPI
+﻿from fhir_gateway.interfaces.http.app import create_app
 
-app = FastAPI(title="FHIR Mini-Gateway API", version="0.1.0")
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app = create_app()

@@ -10,6 +10,7 @@ uvicorn = {extras = ["standard"], version = "*"}
 [dev-packages]
 ruff = "*"
 pytest = "*"
+httpx = "*"
 
 [requires]
 python_version = "3.11"

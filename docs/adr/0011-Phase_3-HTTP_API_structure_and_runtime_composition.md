@@ -14,8 +14,9 @@ The project already has:
 - an application layer with use-cases and narrow ports
 - an initial FastAPI HTTP interface
 - a health endpoint
+- infrastructure settings and logging baseline
 
-As the API grows, it will need to expose application use-cases such as:
+As the API grows, it will expose application use-cases such as:
 
 - `SearchPatients`
 - `GetPatientSummary`
@@ -23,7 +24,7 @@ As the API grows, it will need to expose application use-cases such as:
 - `ExportPatientBundle`
 - `ListAuditEvents`
 
-The project needs a clear HTTP structure that can grow without putting business logic, persistence logic, configuration, and route definitions into a single file.
+The project needs an HTTP structure that can grow without putting route definitions, runtime configuration, logging, persistence, and business logic into a single file.
 
 ## Decision
 
@@ -36,7 +37,7 @@ The HTTP interface will use:
 - infrastructure settings for runtime configuration
 - infrastructure logging setup during application creation
 
-Initial structure:
+Current structure:
 
     interfaces/http/
     ├── app.py
@@ -73,13 +74,25 @@ Routers must not:
 
 The API is an adapter into the application layer, not the center of the system.
 
-The domain layer must remain independent from FastAPI, HTTP, Pydantic, SQLAlchemy, and runtime configuration.
+The domain layer must remain independent from:
 
-The application layer must remain independent from FastAPI, HTTP request/response objects, SQLAlchemy, and persistence details.
+- FastAPI
+- HTTP
+- Pydantic API schemas
+- SQLAlchemy
+- runtime configuration
+
+The application layer must remain independent from:
+
+- FastAPI
+- HTTP request/response objects
+- SQLAlchemy
+- persistence details
+- runtime settings
 
 This keeps the core use-cases reusable from other possible interfaces, such as CLI commands, background workers, or message consumers.
 
-Example:
+Example future flow:
 
     HTTP request:
     GET /patients/pat-001/summary
@@ -108,7 +121,7 @@ Rejected.
 
 This is acceptable for very small demos, but it does not scale well.
 
-As the API grows, `main.py` would accumulate app creation, route definitions, configuration, logging, exception handlers, dependency wiring, and possibly persistence concerns.
+As the API grows, `main.py` would accumulate app creation, route definitions, configuration, logging, exception handlers, dependency wiring, and persistence concerns.
 
 ### 2. Let routers directly access the database
 
@@ -116,7 +129,7 @@ Rejected.
 
 This would couple HTTP endpoints to persistence and bypass the application use-cases.
 
-It would make the application harder to test, harder to reuse, and less aligned with the existing domain/application architecture.
+It would make the system harder to test, harder to reuse, and less aligned with the existing domain/application architecture.
 
 ### 3. Put settings in the application or domain layers
 
@@ -130,7 +143,7 @@ The domain and application layers should not depend on environment variables, Fa
 
 Rejected.
 
-Features such as authentication, RBAC, structured logging, request correlation IDs, advanced exception envelopes, and OpenTelemetry are valuable but premature for the current sub-issue.
+Features such as authentication, RBAC, structured logging, request correlation IDs, advanced exception envelopes, OpenTelemetry, and deployment-specific settings are valuable but premature for the current phase.
 
 They should be introduced when the project has a real consumer for them.
 
@@ -142,6 +155,7 @@ They should be introduced when the project has a real consumer for them.
 - Domain and application layers remain framework-independent.
 - Routers stay focused on HTTP adaptation.
 - Runtime configuration is centralized.
+- Logging is configured consistently at application startup.
 - Future persistence adapters can implement application ports without changing use-cases.
 - The architecture is easier to explain in a portfolio or technical interview.
 
@@ -157,6 +171,13 @@ The additional structure is accepted because the project is intended to demonstr
 
 This ADR does not define final clinical endpoint contracts.
 
-It also does not define the final API error response envelope, authentication strategy, persistence model strategy, or deployment model.
+It also does not define:
+
+- final API error response envelope
+- authentication strategy
+- RBAC strategy
+- persistence model strategy
+- deployment model
+- observability strategy
 
 Those decisions will be documented separately when they become necessary.

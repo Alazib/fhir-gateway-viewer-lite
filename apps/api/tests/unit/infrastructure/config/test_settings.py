@@ -8,6 +8,7 @@ ENVIRONMENT_VARIABLES = (
     "FHIR_GATEWAY_APP_VERSION",
     "FHIR_GATEWAY_ENVIRONMENT",
     "FHIR_GATEWAY_LOG_LEVEL",
+    "FHIR_GATEWAY_DATABASE_URL",
 )
 
 
@@ -27,6 +28,7 @@ def test_settings_uses_default_values(monkeypatch: pytest.MonkeyPatch):
     assert settings.app_version == "0.1.0"
     assert settings.environment == "local"
     assert settings.log_level == "INFO"
+    assert settings.database_url == "postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway"
 
 
 def test_settings_reads_environment_variables(monkeypatch: pytest.MonkeyPatch):
@@ -36,6 +38,10 @@ def test_settings_reads_environment_variables(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("FHIR_GATEWAY_APP_VERSION", "9.9.9")
     monkeypatch.setenv("FHIR_GATEWAY_ENVIRONMENT", "test")
     monkeypatch.setenv("FHIR_GATEWAY_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv(
+    "FHIR_GATEWAY_DATABASE_URL",
+    "postgresql+psycopg://user:password@localhost:5432/test_db",
+)
 
     settings = Settings()
 
@@ -43,6 +49,7 @@ def test_settings_reads_environment_variables(monkeypatch: pytest.MonkeyPatch):
     assert settings.app_version == "9.9.9"
     assert settings.environment == "test"
     assert settings.log_level == "DEBUG"
+    assert settings.database_url == "postgresql+psycopg://user:password@localhost:5432/test_db"
 
 
 def test_settings_rejects_invalid_environment(monkeypatch: pytest.MonkeyPatch):

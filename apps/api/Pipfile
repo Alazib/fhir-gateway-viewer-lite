@@ -7,6 +7,9 @@ name = "pypi"
 fastapi = "*"
 uvicorn = {extras = ["standard"], version = "*"}
 pydantic-settings = "*"
+sqlalchemy = "*"
+alembic = "*"
+psycopg = {extras = ["binary"], version = "*"}
 
 [dev-packages]
 ruff = "*"

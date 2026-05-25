@@ -8,14 +8,17 @@ The API currently exposes one technical endpoint:
 
 - `GET /health`
 
-The backend now includes an initial persistence foundation based on:
+The backend includes:
 
-- SQLAlchemy ORM
-- Alembic
-- Psycopg 3
-- centralized runtime database configuration
+- clean FastAPI application structure
+- centralized runtime configuration
+- logging baseline
+- SQLAlchemy/Alembic persistence foundation
+- initial Patient persistence schema
 
-Clinical endpoints are not implemented yet.
+Clinical HTTP endpoints are not implemented yet.
+
+No clinical HTTP endpoint is currently backed by database persistence.
 
 Planned future endpoint groups include:
 
@@ -24,6 +27,10 @@ Planned future endpoint groups include:
 - observation listing by code
 - patient bundle export
 - audit event listing
+
+For persistence details, see:
+
+    docs/persistence/README.md
 
 ---
 
@@ -130,96 +137,25 @@ Logging is configured during FastAPI app creation using the configured `FHIR_GAT
 
 ---
 
-## Persistence foundation
+## Persistence status
 
-The backend includes an initial persistence foundation.
+The backend includes a SQLAlchemy/Alembic persistence foundation.
 
-Current structure:
+Current persistence status:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/
-    ├── __init__.py
-    └── sqlalchemy/
-        ├── __init__.py
-        ├── base.py
-        ├── database.py
-        └── models/
-            └── __init__.py
+- Patient ORM schema exists.
+- Patient identifier ORM schema exists.
+- Observation ORM schema is pending.
+- Condition ORM schema is pending.
+- Encounter ORM schema is pending.
+- AuditEvent ORM schema is pending.
+- ORM/domain mappers are pending.
+- SQLAlchemy adapters are pending.
+- No clinical HTTP endpoint uses persistence yet.
 
-Responsibilities:
+Persistence details are documented separately in:
 
-- `base.py`: defines the SQLAlchemy declarative `Base`.
-- `database.py`: provides helpers to create SQLAlchemy engines and session factories.
-- `models/`: reserved for future SQLAlchemy ORM models.
-
-The persistence layer belongs to infrastructure.
-
-Domain and application layers must not import SQLAlchemy.
-
----
-
-## SQLAlchemy base
-
-The SQLAlchemy declarative base is defined in:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/base.py
-
-It exposes:
-
-    Base.metadata
-
-This metadata will be used by future ORM models and by Alembic migrations.
-
-At the current stage, no clinical ORM models have been implemented yet.
-
----
-
-## Database engine and session factory
-
-Database helpers are defined in:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/database.py
-
-Current helpers:
-
-    create_database_engine(database_url)
-    create_session_factory(engine)
-
-The intended future flow is:
-
-    Settings.database_url
-        -> create_database_engine(...)
-        -> create_session_factory(...)
-        -> SQLAlchemy infrastructure adapters
-
-The API does not yet open database sessions for HTTP requests.
-
----
-
-## Alembic migrations
-
-Alembic has been initialized under:
-
-    apps/api/alembic/
-
-Current Alembic files:
-
-    apps/api/
-    ├── alembic.ini
-    └── alembic/
-        ├── env.py
-        ├── script.py.mako
-        └── versions/
-
-Alembic is configured to use:
-
-- `Settings.database_url`
-- `Base.metadata`
-
-The `alembic.ini` file prepends `src` to the Python path so Alembic can import the `fhir_gateway` package.
-
-Do not run database migrations yet unless a local PostgreSQL database has been created and configured.
-
-No migration revisions have been created yet because no ORM models exist yet.
+    docs/persistence/README.md
 
 ---
 
@@ -351,13 +287,24 @@ Run logging tests:
 
     pipenv run pytest tests/unit/infrastructure/test_logging.py
 
-Run persistence foundation tests:
-
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
-
 Run architecture boundary tests:
 
     pipenv run pytest tests/unit/architecture
+
+Run persistence tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
+
+Run Patient ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_patient_orm_models.py
+
+Useful Alembic inspection commands:
+
+    pipenv run alembic history --verbose
+    pipenv run alembic upgrade head --sql
+
+Do not run database migrations against PostgreSQL until a local PostgreSQL workflow has been created and configured.
 
 ---
 
@@ -377,8 +324,7 @@ The API does not yet expose:
 - API error response envelope
 - clinical Pydantic request/response schemas
 - concrete SQLAlchemy adapters
-- clinical ORM models
-- database migrations for clinical tables
+- ORM/domain mappers
 - seed data
 
 These capabilities are intentionally deferred.
@@ -475,20 +421,6 @@ As the API evolves:
 
 ---
 
-## Persistence design principles
-
-As persistence evolves:
-
-1. Keep ORM models separate from domain entities.
-2. Keep SQLAlchemy imports inside infrastructure.
-3. Map ORM records to domain entities in infrastructure adapters or mappers.
-4. Keep application ports expressed in domain/application types.
-5. Use Alembic for schema changes.
-6. Do not create tables manually outside migrations once migrations are active.
-7. Do not expose ORM records directly from application use-cases.
-
----
-
 ## Error handling
 
 A standard API error response envelope has not been defined yet.
@@ -520,3 +452,17 @@ Authentication, RBAC, and audit trail enforcement belong to later phases.
 The current local default `database_url` is for development only.
 
 Production database credentials must be provided through environment variables or a future secrets management strategy.
+
+---
+
+## Related documentation
+
+Persistence documentation:
+
+    docs/persistence/README.md
+
+Related ADRs:
+
+- ADR 0011: HTTP API structure and runtime composition
+- ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
+- ADR 0013: Centralized runtime configuration

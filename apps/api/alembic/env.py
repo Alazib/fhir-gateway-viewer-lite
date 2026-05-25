@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from fhir_gateway.infrastructure.config.settings import get_settings
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
+from fhir_gateway.infrastructure.persistence.sqlalchemy import models as _models
 
 config = context.config
 
@@ -12,6 +13,9 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+# Import ORM models so they are registered in Base.metadata for Alembic.
+_ = _models
 
 
 def run_migrations_offline() -> None:

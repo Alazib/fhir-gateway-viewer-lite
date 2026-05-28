@@ -1,4 +1,14 @@
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fhir_gateway.domain.entities.observation import ObservationStatus
@@ -42,7 +52,6 @@ class ObservationRecord(TimestampMixin, Base):
             "value_quantity IS NULL OR value_unit IS NOT NULL",
             name="ck_observations_value_quantity_requires_unit",
         ),
-        Index("ix_observations_patient_id", "patient_id"),
         Index("ix_observations_patient_code", "patient_id", "code_id"),
         Index(
             "ix_observations_patient_effective_at",
@@ -61,7 +70,7 @@ class ObservationRecord(TimestampMixin, Base):
         ForeignKey("observation_codes.id"),
         nullable=False,
     )
-    effective_at: Mapped[DateTime] = mapped_column(
+    effective_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )

@@ -200,7 +200,10 @@ def test_observations_table_has_expected_indexes():
 
     indexes = _index_columns_by_name(table)
 
-    assert indexes["ix_observations_patient_id"] == ("patient_id",)
+    assert set(indexes.keys()) == {
+        "ix_observations_patient_code",
+        "ix_observations_patient_effective_at",
+    }
     assert indexes["ix_observations_patient_code"] == ("patient_id", "code_id")
     assert indexes["ix_observations_patient_effective_at"] == (
         "patient_id",
@@ -213,7 +216,9 @@ def test_conditions_table_has_expected_indexes():
 
     indexes = _index_columns_by_name(table)
 
-    assert indexes["ix_conditions_patient_id"] == ("patient_id",)
+    assert set(indexes.keys()) == {
+        "ix_conditions_patient_code",
+    }
     assert indexes["ix_conditions_patient_code"] == ("patient_id", "code_id")
 
 
@@ -222,7 +227,9 @@ def test_encounters_table_has_expected_indexes():
 
     indexes = _index_columns_by_name(table)
 
-    assert indexes["ix_encounters_patient_id"] == ("patient_id",)
+    assert set(indexes.keys()) == {
+        "ix_encounters_patient_period_start_at",
+    }
     assert indexes["ix_encounters_patient_period_start_at"] == (
         "patient_id",
         "period_start_at",

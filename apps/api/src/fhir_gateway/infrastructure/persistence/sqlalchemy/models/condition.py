@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,7 +28,6 @@ class ConditionRecord(TimestampMixin, Base):
     __tablename__ = "conditions"
 
     __table_args__ = (
-        Index("ix_conditions_patient_id", "patient_id"),
         Index("ix_conditions_patient_code", "patient_id", "code_id"),
     )
 
@@ -39,7 +40,7 @@ class ConditionRecord(TimestampMixin, Base):
         ForeignKey("condition_codes.id"),
         nullable=False,
     )
-    recorded_at: Mapped[DateTime | None] = mapped_column(
+    recorded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

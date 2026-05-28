@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +15,6 @@ class EncounterRecord(TimestampMixin, Base):
             "period_end_at IS NULL OR period_start_at <= period_end_at",
             name="ck_encounters_period_start_before_end",
         ),
-        Index("ix_encounters_patient_id", "patient_id"),
         Index(
             "ix_encounters_patient_period_start_at",
             "patient_id",
@@ -26,11 +27,11 @@ class EncounterRecord(TimestampMixin, Base):
         ForeignKey("patients.id", ondelete="CASCADE"),
         nullable=False,
     )
-    period_start_at: Mapped[DateTime] = mapped_column(
+    period_start_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
     )
-    period_end_at: Mapped[DateTime | None] = mapped_column(
+    period_end_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )

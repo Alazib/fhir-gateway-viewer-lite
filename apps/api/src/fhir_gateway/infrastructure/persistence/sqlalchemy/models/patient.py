@@ -1,36 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import DateTime, ForeignKey, Index, JSON, String, UniqueConstraint, func
+from sqlalchemy import ForeignKey, Index, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
 
 
-class PatientRecord(Base):
+class PatientRecord(TimestampMixin, Base):
     __tablename__ = "patients"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name_text: Mapped[str | None] = mapped_column(String, nullable=True)
     name_family: Mapped[str | None] = mapped_column(String, nullable=True)
     name_given: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
 
     identifiers: Mapped[list[PatientIdentifierRecord]] = relationship(
         back_populates="patient",
         cascade="all, delete-orphan",
     )
+
+
 
 
 class PatientIdentifierRecord(Base):

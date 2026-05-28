@@ -1,6 +1,7 @@
 from sqlalchemy import JSON, DateTime, UniqueConstraint
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
 from fhir_gateway.infrastructure.persistence.sqlalchemy.models.patient import (
     PatientIdentifierRecord,
     PatientRecord,
@@ -10,6 +11,10 @@ from fhir_gateway.infrastructure.persistence.sqlalchemy.models.patient import (
 def test_patient_tables_are_registered_in_metadata():
     assert "patients" in Base.metadata.tables
     assert "patient_identifiers" in Base.metadata.tables
+
+
+def test_patient_record_uses_timestamp_mixin():
+    assert issubclass(PatientRecord, TimestampMixin)
 
 
 def test_patients_table_has_expected_columns():
@@ -44,6 +49,14 @@ def test_patients_table_uses_expected_column_types():
     assert isinstance(table.c.updated_at.type, DateTime)
     assert table.c.created_at.type.timezone
     assert table.c.updated_at.type.timezone
+
+
+def test_patients_timestamp_columns_keep_expected_defaults():
+    table = PatientRecord.__table__
+
+    assert table.c.created_at.server_default is not None
+    assert table.c.updated_at.server_default is not None
+    assert table.c.updated_at.onupdate is not None
 
 
 def test_patient_identifiers_table_has_expected_columns():

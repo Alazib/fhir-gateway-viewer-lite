@@ -14,7 +14,13 @@ The backend includes:
 - centralized runtime configuration
 - logging baseline
 - SQLAlchemy/Alembic persistence foundation
-- initial Patient persistence schema
+- Patient persistence schema
+- Patient identifier persistence schema
+- Observation code catalog persistence schema
+- Condition code catalog persistence schema
+- Observation persistence schema
+- Condition persistence schema
+- Encounter persistence schema
 
 Clinical HTTP endpoints are not implemented yet.
 
@@ -145,13 +151,24 @@ Current persistence status:
 
 - Patient ORM schema exists.
 - Patient identifier ORM schema exists.
-- Observation ORM schema is pending.
-- Condition ORM schema is pending.
-- Encounter ORM schema is pending.
+- Observation code catalog ORM schema exists.
+- Condition code catalog ORM schema exists.
+- Observation ORM schema exists.
+- Condition ORM schema exists.
+- Encounter ORM schema exists.
 - AuditEvent ORM schema is pending.
 - ORM/domain mappers are pending.
 - SQLAlchemy adapters are pending.
+- Request-scoped SQLAlchemy session management is pending.
 - No clinical HTTP endpoint uses persistence yet.
+
+Current Alembic migration chain:
+
+    <base>
+        ↓
+    f97f9d019499_create_patient_tables
+        ↓
+    ab48a83daad7_add_clinical_resource_tables
 
 Persistence details are documented separately in:
 
@@ -295,13 +312,22 @@ Run persistence tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
 
+Run ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
+
 Run Patient ORM model tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_patient_orm_models.py
 
+Run clinical resource ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_clinical_resource_orm_models.py
+
 Useful Alembic inspection commands:
 
     pipenv run alembic history --verbose
+    pipenv run alembic heads --verbose
     pipenv run alembic upgrade head --sql
 
 Do not run database migrations against PostgreSQL until a local PostgreSQL workflow has been created and configured.
@@ -325,6 +351,7 @@ The API does not yet expose:
 - clinical Pydantic request/response schemas
 - concrete SQLAlchemy adapters
 - ORM/domain mappers
+- request-scoped SQLAlchemy session dependency
 - seed data
 
 These capabilities are intentionally deferred.
@@ -466,3 +493,4 @@ Related ADRs:
 - ADR 0011: HTTP API structure and runtime composition
 - ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
 - ADR 0013: Centralized runtime configuration
+- ADR 0014: Database timestamp and audit metadata strategy

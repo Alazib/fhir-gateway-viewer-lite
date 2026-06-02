@@ -13,8 +13,18 @@ The backend currently includes:
 - SQLAlchemy declarative `Base`
 - database engine/session factory helpers
 - Alembic configuration
-- initial Patient ORM schema
-- initial manual Patient migration
+- reusable SQLAlchemy `TimestampMixin`
+- Patient ORM schema
+- Patient identifier ORM schema
+- Observation code catalog ORM schema
+- Condition code catalog ORM schema
+- Observation ORM schema
+- Condition ORM schema
+- Encounter ORM schema
+- manual Patient migration
+- manual clinical resource tables migration
+- ORM metadata tests
+- migration SQL rendering validation
 - architecture boundary tests preventing SQLAlchemy imports in domain/application
 - constrained domain `Reference.resource_type`
 - ADR 0014 database timestamp and audit metadata strategy
@@ -25,11 +35,11 @@ Current clinical persistence schemas:
 |---|---|
 | Patient | Implemented |
 | Patient identifiers | Implemented |
-| Observation codes | Planned in Sub-issue E |
-| Condition codes | Planned in Sub-issue E |
-| Observation | Planned in Sub-issue E |
-| Condition | Planned in Sub-issue E |
-| Encounter | Planned in Sub-issue E |
+| Observation codes | Implemented |
+| Condition codes | Implemented |
+| Observation | Implemented |
+| Condition | Implemented |
+| Encounter | Implemented |
 | AuditEvent | Pending |
 
 No SQLAlchemy adapter has been implemented yet.
@@ -51,7 +61,6 @@ It covers:
 - Alembic migrations
 - current ORM models
 - current database schema
-- planned clinical persistence schemas
 - timestamp strategy
 - persistence design principles
 - current limitations
@@ -109,18 +118,6 @@ Current structure:
         ├── __init__.py
         ├── base.py
         ├── database.py
-        └── models/
-            ├── __init__.py
-            └── patient.py
-
-Planned structure after Sub-issue E:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/
-    ├── __init__.py
-    └── sqlalchemy/
-        ├── __init__.py
-        ├── base.py
-        ├── database.py
         ├── mixins.py
         └── models/
             ├── __init__.py
@@ -133,12 +130,13 @@ Responsibilities:
 
 - `base.py`: defines the SQLAlchemy declarative `Base`.
 - `database.py`: provides helpers to create SQLAlchemy engines and session factories.
-- `mixins.py`: will contain reusable SQLAlchemy persistence mixins such as `TimestampMixin`.
+- `mixins.py`: contains reusable SQLAlchemy persistence mixins such as `TimestampMixin`.
 - `models/`: contains SQLAlchemy ORM models.
-- `models/patient.py`: defines the initial Patient persistence records.
-- `models/observation.py`: will define Observation code catalog and Observation records.
-- `models/condition.py`: will define Condition code catalog and Condition records.
-- `models/encounter.py`: will define Encounter records.
+- `models/patient.py`: defines Patient and Patient identifier persistence records.
+- `models/observation.py`: defines Observation code catalog and Observation records.
+- `models/condition.py`: defines Condition code catalog and Condition records.
+- `models/encounter.py`: defines Encounter records.
+- `models/__init__.py`: imports and exports all current ORM records so they are registered in `Base.metadata`.
 
 ---
 
@@ -176,13 +174,10 @@ It exposes:
 
 `Base.metadata` is the central SQLAlchemy registry of known tables.
 
-Current clinical ORM tables registered in metadata:
+Current ORM tables registered in metadata:
 
     patients
     patient_identifiers
-
-Planned additional ORM tables after Sub-issue E:
-
     observation_codes
     condition_codes
     observations
@@ -190,6 +185,14 @@ Planned additional ORM tables after Sub-issue E:
     encounters
 
 Alembic uses this metadata to understand the target schema.
+
+Important note:
+
+SQLAlchemy registers tables in `Base.metadata` when Python imports and evaluates ORM model classes.
+
+Alembic does not discover ORM classes by scanning folders.
+
+For this reason, `alembic/env.py` imports the SQLAlchemy `models` package so the model modules are loaded before Alembic reads `Base.metadata`.
 
 ---
 
@@ -230,23 +233,23 @@ Selected convention:
 - `created_at` and `updated_at` are technical persistence metadata.
 - They are not clinical dates.
 - They are not audit events.
-- Top-level ORM-managed tables should include `created_at` and `updated_at`.
+- Top-level ORM-managed tables include `created_at` and `updated_at`.
 - Dependent component tables do not receive timestamps by default.
 - Domain entities do not receive `created_at` or `updated_at` by default.
 - HTTP APIs do not expose technical timestamps by default.
 - Phase 3 uses database server defaults plus SQLAlchemy `onupdate`.
 - Database triggers are deferred to future hardening.
-- A reusable SQLAlchemy `TimestampMixin` should be introduced.
+- Reusable SQLAlchemy timestamp behavior is implemented through `TimestampMixin`.
 
-Planned mixin:
+Current mixin:
 
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mixins.py
 
-Planned class:
+Current class:
 
     TimestampMixin
 
-Expected behavior:
+Current behavior:
 
     created_at:
         DateTime(timezone=True)
@@ -343,53 +346,121 @@ Audit events are not a substitute for generic row timestamps.
 
 ## Current ORM models
 
-Current ORM model module:
+Current ORM model modules:
 
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/patient.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/observation.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/condition.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/encounter.py
 
 Defined ORM records:
 
     PatientRecord
     PatientIdentifierRecord
+    ObservationCodeRecord
+    ObservationRecord
+    ConditionCodeRecord
+    ConditionRecord
+    EncounterRecord
 
 These records are persistence models.
 
 They are not domain entities.
 
-The domain entity remains:
+The domain entities remain:
 
     fhir_gateway.domain.entities.patient.Patient
+    fhir_gateway.domain.entities.observation.Observation
+    fhir_gateway.domain.entities.condition.Condition
+    fhir_gateway.domain.entities.encounter.Encounter
 
 The domain value objects remain:
 
     ResourceId
     Identifier
     HumanName
+    Code
+    Reference
+    Instant
+    Period
+    Quantity
 
-Planned ORM model modules for Sub-issue E:
+Future ORM records:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/observation.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/condition.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/encounter.py
-
-Planned ORM records for Sub-issue E:
-
-    ObservationCodeRecord
-    ConditionCodeRecord
-    ObservationRecord
-    ConditionRecord
-    EncounterRecord
+    AuditEventRecord
 
 ---
 
-## Current Patient persistence schema
+## Current database schema overview
 
-The first clinical persistence schema has been introduced for Patient.
-
-Current database tables represented by SQLAlchemy metadata:
+Current database tables represented by SQLAlchemy metadata and Alembic migrations:
 
     patients
     patient_identifiers
+    observation_codes
+    condition_codes
+    observations
+    conditions
+    encounters
+
+Pending persistence table:
+
+    audit_events
+
+---
+
+## ID strategy
+
+The persistence layer uses two ID strategies.
+
+### Domain resource IDs
+
+Main clinical resources use string IDs because they represent domain `ResourceId` values.
+
+Current tables using string primary keys:
+
+    patients.id
+    observations.id
+    conditions.id
+    encounters.id
+
+These IDs are controlled by the application/domain layer and are not generated by the database.
+
+Examples:
+
+    pat-001
+    obs-001
+    cond-001
+    enc-001
+
+### Technical database IDs
+
+Dependent component tables and catalog tables use integer autoincrement IDs.
+
+Current tables using integer autoincrement primary keys:
+
+    patient_identifiers.id
+    observation_codes.id
+    condition_codes.id
+
+Reason:
+
+- these rows are not top-level clinical resources in the current domain model
+- catalog identity is naturally represented by `(system, code)`
+- integer surrogate keys make foreign keys from clinical rows simpler
+- dependent component rows do not need domain-visible resource IDs
+
+Summary:
+
+| Table | ID column | Type | Autoincrement | Reason |
+|---|---:|---:|---:|---|
+| `patients` | `id` | string | no | Stores domain `ResourceId.value` |
+| `patient_identifiers` | `id` | integer | yes | Technical component row ID |
+| `observation_codes` | `id` | integer | yes | Technical catalog row ID |
+| `condition_codes` | `id` | integer | yes | Technical catalog row ID |
+| `observations` | `id` | string | no | Stores domain `ResourceId.value` |
+| `conditions` | `id` | string | no | Stores domain `ResourceId.value` |
+| `encounters` | `id` | string | no | Stores domain `ResourceId.value` |
 
 ---
 
@@ -408,11 +479,17 @@ Current columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
+Current constraints and indexes:
+
+| Name | Type | Purpose |
+|---|---|---|
+| primary key on `id` | primary key | Identifies each persisted patient resource |
+
 The timestamp columns are persistence metadata.
 
 They are not part of the domain `Patient` entity at this stage.
 
-Sub-issue E must refactor `PatientRecord` to use `TimestampMixin` while preserving this effective schema.
+`PatientRecord` currently uses `TimestampMixin`.
 
 ---
 
@@ -433,6 +510,7 @@ Current constraints and indexes:
 
 | Name | Type | Purpose |
 |---|---|---|
+| primary key on `id` | primary key | Identifies each persisted identifier row |
 | `uq_patient_identifiers_patient_system_value` | unique constraint | Prevents duplicate `(patient_id, system, value)` identifiers |
 | `ix_patient_identifiers_system_value` | index | Supports future lookup by identifier system and value |
 
@@ -465,6 +543,11 @@ Conceptually:
     PatientRecord
         └── identifiers: list[PatientIdentifierRecord]
 
+And from each identifier row:
+
+    PatientIdentifierRecord
+        └── patient: PatientRecord
+
 This relationship is persistence-level structure.
 
 It is not the same thing as the domain entity itself.
@@ -490,34 +573,16 @@ The current Patient persistence schema follows these rules:
 5. `name_given` is stored as JSON to preserve ordered given names without introducing a premature `patient_given_names` table.
 6. `created_at` and `updated_at` are technical persistence metadata.
 7. `patient_identifiers` does not receive timestamps by default because it is a dependent component table.
-8. Patient ORM records must be mapped to domain entities by infrastructure mappers in a later sub-issue.
-9. Application use-cases must not return ORM records.
-10. SQLAlchemy must remain isolated to infrastructure.
-11. Sub-issue E must refactor `PatientRecord` to use `TimestampMixin` without changing the effective schema.
+8. `PatientRecord` uses `TimestampMixin`.
+9. Patient ORM records must be mapped to domain entities by infrastructure mappers in a later sub-issue.
+10. Application use-cases must not return ORM records.
+11. SQLAlchemy must remain isolated to infrastructure.
 
 ---
 
-## Planned Sub-issue E persistence schemas
+## Table: `observation_codes`
 
-Sub-issue E will introduce persistence schemas for:
-
-    observation_codes
-    condition_codes
-    observations
-    conditions
-    encounters
-
-These schemas are planned and not implemented yet.
-
-Detailed implementation will happen in:
-
-    PHASE 3 / SUB-ISSUE E / Add Observation, Condition, and Encounter ORM models and migration
-
----
-
-## Planned table: `observation_codes`
-
-The `observation_codes` table will store the catalog of supported/selectable Observation codes.
+The `observation_codes` table stores the catalog of supported/selectable Observation codes.
 
 Current purpose:
 
@@ -525,7 +590,7 @@ Current purpose:
     Consistent Observation code selection.
     Avoid repeated code data inside every observation row.
 
-Planned columns:
+Current columns:
 
 | Column | Type | Nullable | Purpose |
 |---|---:|---:|---|
@@ -536,23 +601,26 @@ Planned columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
-Planned constraints:
+Current constraints and indexes:
 
-| Name | Type | Columns |
+| Name | Type | Purpose |
 |---|---|---|
-| `uq_observation_codes_system_code` | unique constraint | `system`, `code` |
+| primary key on `id` | primary key | Identifies each catalog row |
+| `uq_observation_codes_system_code` | unique constraint | Prevents duplicate Observation codes for the same `(system, code)` |
 
 Notes:
 
 - This table is a top-level ORM-managed catalog table.
-- It should use `TimestampMixin`.
-- It should not contain seed data in Sub-issue E.
+- It uses `TimestampMixin`.
+- It does not contain seed data yet.
+- The clinical identity of a code is `(system, code)`.
+- The integer `id` is a persistence surrogate key used by `observations.code_id`.
 
 ---
 
-## Planned table: `condition_codes`
+## Table: `condition_codes`
 
-The `condition_codes` table will store the catalog of supported/selectable Condition codes.
+The `condition_codes` table stores the catalog of supported/selectable Condition codes.
 
 Current purpose:
 
@@ -560,7 +628,7 @@ Current purpose:
     Consistent Condition code selection.
     Avoid repeated code data inside every condition row.
 
-Planned columns:
+Current columns:
 
 | Column | Type | Nullable | Purpose |
 |---|---:|---:|---|
@@ -571,25 +639,28 @@ Planned columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
-Planned constraints:
+Current constraints and indexes:
 
-| Name | Type | Columns |
+| Name | Type | Purpose |
 |---|---|---|
-| `uq_condition_codes_system_code` | unique constraint | `system`, `code` |
+| primary key on `id` | primary key | Identifies each catalog row |
+| `uq_condition_codes_system_code` | unique constraint | Prevents duplicate Condition codes for the same `(system, code)` |
 
 Notes:
 
 - This table is a top-level ORM-managed catalog table.
-- It should use `TimestampMixin`.
-- It should not contain seed data in Sub-issue E.
+- It uses `TimestampMixin`.
+- It does not contain seed data yet.
+- The clinical identity of a code is `(system, code)`.
+- The integer `id` is a persistence surrogate key used by `conditions.code_id`.
 
 ---
 
-## Planned table: `observations`
+## Table: `observations`
 
-The `observations` table will store the persistence representation of the domain `Observation` resource.
+The `observations` table stores the persistence representation of the domain `Observation` resource.
 
-Planned columns:
+Current columns:
 
 | Column | Type | Nullable | Purpose |
 |---|---:|---:|---|
@@ -603,26 +674,26 @@ Planned columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
-Planned foreign keys:
+Current foreign keys:
 
 | Column | References | Delete behavior |
 |---|---|---|
 | `patient_id` | `patients.id` | `ON DELETE CASCADE` |
 | `code_id` | `observation_codes.id` | restrict/no cascade |
 
-Planned constraints:
+Current constraints:
 
 | Name | Type | Purpose |
 |---|---|---|
+| primary key on `id` | primary key | Identifies each persisted Observation resource |
 | `ck_observations_status_allowed` | check constraint | Ensures status is one of the allowed `ObservationStatus` values |
 | `ck_observations_value_quantity_requires_unit` | check constraint | Ensures `value_unit` is present when `value_quantity` is present |
 
-Planned indexes:
+Current indexes:
 
 | Name | Columns | Purpose |
 |---|---|---|
-| `ix_observations_patient_id` | `patient_id` | List observations for a patient |
-| `ix_observations_patient_code` | `patient_id`, `code_id` | List observations for a patient by code |
+| `ix_observations_patient_code` | `patient_id`, `code_id` | List/filter observations for a patient by code |
 | `ix_observations_patient_effective_at` | `patient_id`, `effective_at` | List/order observations for a patient by clinical date |
 
 Allowed status values:
@@ -640,16 +711,17 @@ Notes:
 
 - `effective_at` is a clinical date, not a technical timestamp.
 - `created_at` and `updated_at` are technical persistence metadata.
-- `code_id` should not cascade-delete observations when a catalog row is deleted.
-- This table should use `TimestampMixin`.
+- `code_id` does not cascade-delete observations when a catalog row is deleted.
+- This table uses `TimestampMixin`.
+- The simple `patient_id` index is intentionally not present; current query patterns are covered by composite indexes starting with `patient_id`.
 
 ---
 
-## Planned table: `conditions`
+## Table: `conditions`
 
-The `conditions` table will store the persistence representation of the domain `Condition` resource.
+The `conditions` table stores the persistence representation of the domain `Condition` resource.
 
-Planned columns:
+Current columns:
 
 | Column | Type | Nullable | Purpose |
 |---|---:|---:|---|
@@ -660,34 +732,40 @@ Planned columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
-Planned foreign keys:
+Current foreign keys:
 
 | Column | References | Delete behavior |
 |---|---|---|
 | `patient_id` | `patients.id` | `ON DELETE CASCADE` |
 | `code_id` | `condition_codes.id` | restrict/no cascade |
 
-Planned indexes:
+Current constraints:
+
+| Name | Type | Purpose |
+|---|---|---|
+| primary key on `id` | primary key | Identifies each persisted Condition resource |
+
+Current indexes:
 
 | Name | Columns | Purpose |
 |---|---|---|
-| `ix_conditions_patient_id` | `patient_id` | List conditions for a patient |
 | `ix_conditions_patient_code` | `patient_id`, `code_id` | List/filter conditions for a patient by code |
 
 Notes:
 
 - `recorded_at` is nullable because `Condition.recorded_date` is optional in the domain.
 - `created_at` and `updated_at` are technical persistence metadata.
-- `code_id` should not cascade-delete conditions when a catalog row is deleted.
-- This table should use `TimestampMixin`.
+- `code_id` does not cascade-delete conditions when a catalog row is deleted.
+- This table uses `TimestampMixin`.
+- The simple `patient_id` index is intentionally not present; the composite index starts with `patient_id`.
 
 ---
 
-## Planned table: `encounters`
+## Table: `encounters`
 
-The `encounters` table will store the persistence representation of the domain `Encounter` resource.
+The `encounters` table stores the persistence representation of the domain `Encounter` resource.
 
-Planned columns:
+Current columns:
 
 | Column | Type | Nullable | Purpose |
 |---|---:|---:|---|
@@ -698,47 +776,48 @@ Planned columns:
 | `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
 | `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
 
-Planned foreign keys:
+Current foreign keys:
 
 | Column | References | Delete behavior |
 |---|---|---|
 | `patient_id` | `patients.id` | `ON DELETE CASCADE` |
 
-Planned constraints:
+Current constraints:
 
 | Name | Type | Purpose |
 |---|---|---|
+| primary key on `id` | primary key | Identifies each persisted Encounter resource |
 | `ck_encounters_period_start_before_end` | check constraint | Ensures `period_start_at <= period_end_at` when `period_end_at` exists |
 
-Planned indexes:
+Current indexes:
 
 | Name | Columns | Purpose |
 |---|---|---|
-| `ix_encounters_patient_id` | `patient_id` | List encounters for a patient |
 | `ix_encounters_patient_period_start_at` | `patient_id`, `period_start_at` | List/order encounters for a patient by start date |
 
 Notes:
 
-- `period_start_at` is required because the domain `Encounter` requires `period.start`.
+- `period_start_at` is required because the domain `Encounter` requires `Period.start`.
 - `period_end_at` is optional because the domain `Period.end` is optional.
 - `created_at` and `updated_at` are technical persistence metadata.
-- This table should use `TimestampMixin`.
+- This table uses `TimestampMixin`.
+- The simple `patient_id` index is intentionally not present; the composite index starts with `patient_id`.
 
 ---
 
 ## Code catalog design
 
-Observation and Condition codes will use separate catalog tables:
+Observation and Condition codes use separate catalog tables:
 
     observation_codes
     condition_codes
 
-The clinical rows will reference catalog rows through:
+The clinical rows reference catalog rows through:
 
     observations.code_id -> observation_codes.id
     conditions.code_id -> condition_codes.id
 
-The clinical rows will not duplicate:
+The clinical rows do not duplicate:
 
     code_system
     code_code
@@ -767,21 +846,40 @@ Instead:
 
     observations.status
 
-will be stored as a string with a check constraint.
+is stored as a string with a check constraint.
 
 Reason:
 
 - `ObservationStatus` is a small closed set
 - it is a resource state set, not an administratively maintained terminology catalog
-- the domain enum-like type remains the source of truth
+- the domain enum-like type remains the application source of truth
 - the database check constraint protects persistence integrity
 - future UI should obtain allowed statuses through API/OpenAPI/metadata, not by duplicating constants manually
+
+Current persisted allowed values:
+
+    registered
+    preliminary
+    final
+    amended
+    corrected
+    cancelled
+    entered-in-error
+    unknown
+
+Important migration note:
+
+The Alembic migration freezes these values deliberately.
+
+Migrations are historical schema steps and should not import the live domain enum directly.
+
+If the domain enum changes later, a new migration should update the database check constraint.
 
 ---
 
 ## Quantity design
 
-`Observation.value` will be persisted as explicit columns:
+`Observation.value` is persisted as explicit columns:
 
     value_quantity
     value_unit
@@ -795,9 +893,15 @@ Reason:
 - the mapping is clear
 - the database can enforce that `value_unit` exists when `value_quantity` exists
 
-Planned constraint:
+Current constraint:
 
     ck_observations_value_quantity_requires_unit
+
+Rule:
+
+    value_quantity IS NULL OR value_unit IS NOT NULL
+
+This mirrors the current domain rule that a quantity value requires a unit.
 
 ---
 
@@ -814,7 +918,7 @@ Current supported values:
 
 However, `Observation`, `Condition`, and `Encounter` subjects currently must reference `Patient`.
 
-Therefore, their persistence tables should use:
+Therefore, their persistence tables use:
 
     patient_id
 
@@ -828,6 +932,29 @@ This keeps the schema relational and aligned with current domain rules.
 Future `AuditEventRecord` may need a different representation because `AuditEvent.entity` may reference different supported resource types.
 
 That belongs to the future AuditEvent persistence sub-issue.
+
+---
+
+## Index strategy
+
+The current schema avoids simple `patient_id` indexes when a composite index already starts with `patient_id`.
+
+Current composite indexes:
+
+    ix_observations_patient_code
+    ix_observations_patient_effective_at
+    ix_conditions_patient_code
+    ix_encounters_patient_period_start_at
+
+Reason:
+
+- these indexes support the expected query patterns
+- their first column is `patient_id`
+- they can support many patient-scoped lookups
+- avoiding redundant simple indexes reduces write overhead and storage
+- index additions should remain tied to concrete query patterns
+
+Future index changes should be guided by actual adapter queries and, eventually, database query plans.
 
 ---
 
@@ -859,11 +986,15 @@ Alembic imports the SQLAlchemy models package so ORM models are registered in `B
 
 ## Current migration status
 
-A first manual migration exists under:
+Current migration chain:
 
-    apps/api/alembic/versions/
+    <base>
+        ↓
+    f97f9d019499_create_patient_tables
+        ↓
+    ab48a83daad7_add_clinical_resource_tables
 
-It creates:
+The Patient migration creates:
 
     patients
     patient_identifiers
@@ -873,13 +1004,7 @@ It also creates:
     uq_patient_identifiers_patient_system_value
     ix_patient_identifiers_system_value
 
-The first Patient migration was created manually to make the schema explicit and reviewable.
-
-Planned Sub-issue E migration:
-
-    create clinical resource tables
-
-It should create:
+The clinical resource migration creates:
 
     observation_codes
     condition_codes
@@ -887,7 +1012,19 @@ It should create:
     conditions
     encounters
 
-It should not include:
+It also creates:
+
+    uq_observation_codes_system_code
+    uq_condition_codes_system_code
+    ck_observations_status_allowed
+    ck_observations_value_quantity_requires_unit
+    ck_encounters_period_start_before_end
+    ix_observations_patient_code
+    ix_observations_patient_effective_at
+    ix_conditions_patient_code
+    ix_encounters_patient_period_start_at
+
+The migrations do not include:
 
 - seed data
 - triggers
@@ -895,11 +1032,13 @@ It should not include:
 - adapters
 - HTTP behavior
 
+The migrations were created manually to make the schema explicit and reviewable.
+
 Alembic autogeneration is intentionally deferred until the project has:
 
 - a local PostgreSQL workflow
-- multiple ORM models
 - a clearer migration review routine
+- integration tests around migrations/adapters
 
 ---
 
@@ -908,6 +1047,22 @@ Alembic autogeneration is intentionally deferred until the project has:
 Show migration history:
 
     pipenv run alembic history --verbose
+
+Show current heads:
+
+    pipenv run alembic heads --verbose
+
+Render SQL from the current patient migration to the latest migration:
+
+    pipenv run alembic upgrade f97f9d019499:head --sql
+
+Render SQL from base to the latest migration:
+
+    pipenv run alembic upgrade base:head --sql
+
+Render SQL for downgrading the clinical resource migration:
+
+    pipenv run alembic downgrade ab48a83daad7:f97f9d019499 --sql
 
 Render SQL without applying migrations:
 
@@ -925,11 +1080,9 @@ Do not run this yet unless PostgreSQL is available and configured:
 
 ## Manual migration note
 
-The initial Patient migration was created manually.
+The current migrations were created manually.
 
-The planned clinical resource migration for Sub-issue E should also be manual.
-
-This means the migration file intentionally repeats the schema already represented in the ORM models.
+This means the migration files intentionally repeat the schema already represented in the ORM models.
 
 The two artifacts have different responsibilities:
 
@@ -950,13 +1103,25 @@ Run all persistence tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
 
+Run all ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
+
 Run Patient ORM model tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_patient_orm_models.py
 
-Run future Sub-issue E ORM tests:
+Run code catalog ORM model tests:
 
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_code_catalog_orm_models.py
+
+Run clinical resource ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_clinical_resource_orm_models.py
+
+Run model package registration tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_models_package_registration.py
 
 Run architecture boundary tests:
 
@@ -965,6 +1130,10 @@ Run architecture boundary tests:
 Run full test suite:
 
     pipenv run pytest
+
+Current validated state after Sub-issue E:
+
+    224 tests passing
 
 ---
 
@@ -989,11 +1158,6 @@ This protects the architectural decision documented in ADR 0012.
 
 The persistence layer does not yet include:
 
-- Observation code ORM model
-- Condition code ORM model
-- Observation ORM model
-- Condition ORM model
-- Encounter ORM model
 - AuditEvent ORM model
 - ORM/domain mappers
 - SQLAlchemy adapters for application ports
@@ -1013,14 +1177,14 @@ These capabilities are intentionally deferred.
 
 Likely next Phase 3 persistence sub-issues:
 
-1. Add Observation, Condition, and Encounter ORM models and migration.
-2. Add AuditEvent ORM model and migration.
-3. Add ORM/domain mappers.
-4. Add SQLAlchemy adapters for application ports.
-5. Wire selected persistence-backed use-cases through HTTP/dependencies.
-6. Add local PostgreSQL workflow.
-7. Add Alembic autogeneration workflow.
-8. Add integration testing strategy for migrations and adapters.
+1. Add AuditEvent ORM model and migration.
+2. Add ORM/domain mappers.
+3. Add SQLAlchemy adapters for application ports.
+4. Wire selected persistence-backed use-cases through HTTP/dependencies.
+5. Add local PostgreSQL workflow.
+6. Add Alembic autogeneration workflow.
+7. Add integration testing strategy for migrations and adapters.
+8. Add seed data strategy.
 9. Add database trigger hardening for `updated_at` consistency when justified.
 
 The database-wide timestamp and audit metadata strategy has already been decided in ADR 0014.
@@ -1045,6 +1209,7 @@ As persistence evolves:
 12. Do not introduce database triggers before the trigger hardening backlog is executed.
 13. Keep audit events separate from row timestamps.
 14. Keep clinical dates separate from technical persistence timestamps.
+15. Avoid redundant indexes unless query patterns justify them.
 
 ---
 

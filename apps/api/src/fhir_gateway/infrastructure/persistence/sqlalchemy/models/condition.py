@@ -4,7 +4,10 @@ from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 
 
 class ConditionCodeRecord(TimestampMixin, Base):
@@ -24,7 +27,7 @@ class ConditionCodeRecord(TimestampMixin, Base):
     display: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class ConditionRecord(TimestampMixin, Base):
+class ConditionRecord(LogicalDeletionMixin, TimestampMixin, Base):
     __tablename__ = "conditions"
 
     __table_args__ = (

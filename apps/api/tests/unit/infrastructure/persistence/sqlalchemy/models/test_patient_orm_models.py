@@ -1,7 +1,10 @@
 from sqlalchemy import JSON, DateTime, UniqueConstraint
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 from fhir_gateway.infrastructure.persistence.sqlalchemy.models.patient import (
     PatientIdentifierRecord,
     PatientRecord,
@@ -17,6 +20,10 @@ def test_patient_record_uses_timestamp_mixin():
     assert issubclass(PatientRecord, TimestampMixin)
 
 
+def test_patient_record_uses_logical_deletion_mixin():
+    assert issubclass(PatientRecord, LogicalDeletionMixin)
+
+
 def test_patients_table_has_expected_columns():
     table = PatientRecord.__table__
 
@@ -27,6 +34,7 @@ def test_patients_table_has_expected_columns():
         "name_given",
         "created_at",
         "updated_at",
+        "deleted_at",
     }
 
 
@@ -39,6 +47,7 @@ def test_patients_table_has_expected_primary_key_and_nullable_columns():
     assert table.c.name_given.nullable
     assert not table.c.created_at.nullable
     assert not table.c.updated_at.nullable
+    assert table.c.deleted_at.nullable
 
 
 def test_patients_table_uses_expected_column_types():
@@ -47,8 +56,10 @@ def test_patients_table_uses_expected_column_types():
     assert isinstance(table.c.name_given.type, JSON)
     assert isinstance(table.c.created_at.type, DateTime)
     assert isinstance(table.c.updated_at.type, DateTime)
+    assert isinstance(table.c.deleted_at.type, DateTime)
     assert table.c.created_at.type.timezone
     assert table.c.updated_at.type.timezone
+    assert table.c.deleted_at.type.timezone
 
 
 def test_patients_timestamp_columns_keep_expected_defaults():
@@ -57,6 +68,13 @@ def test_patients_timestamp_columns_keep_expected_defaults():
     assert table.c.created_at.server_default is not None
     assert table.c.updated_at.server_default is not None
     assert table.c.updated_at.onupdate is not None
+
+
+def test_patients_deleted_at_has_no_server_default_or_onupdate():
+    table = PatientRecord.__table__
+
+    assert table.c.deleted_at.server_default is None
+    assert table.c.deleted_at.onupdate is None
 
 
 def test_patient_identifiers_table_has_expected_columns():
@@ -68,6 +86,12 @@ def test_patient_identifiers_table_has_expected_columns():
         "system",
         "value",
     }
+
+
+def test_patient_identifiers_table_does_not_have_deleted_at():
+    table = PatientIdentifierRecord.__table__
+
+    assert "deleted_at" not in table.columns
 
 
 def test_patient_identifiers_table_has_expected_primary_key_and_required_columns():

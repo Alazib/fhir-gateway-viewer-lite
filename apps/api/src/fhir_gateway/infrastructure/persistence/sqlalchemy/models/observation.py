@@ -13,7 +13,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from fhir_gateway.domain.entities.observation import ObservationStatus
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 
 
 OBSERVATION_STATUS_VALUES = tuple(status.value for status in ObservationStatus)
@@ -40,7 +43,7 @@ class ObservationCodeRecord(TimestampMixin, Base):
     display: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class ObservationRecord(TimestampMixin, Base):
+class ObservationRecord(LogicalDeletionMixin, TimestampMixin, Base):
     __tablename__ = "observations"
 
     __table_args__ = (

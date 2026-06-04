@@ -4,10 +4,13 @@ from sqlalchemy import ForeignKey, Index, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 
 
-class PatientRecord(TimestampMixin, Base):
+class PatientRecord(LogicalDeletionMixin, TimestampMixin, Base):
     __tablename__ = "patients"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -19,8 +22,6 @@ class PatientRecord(TimestampMixin, Base):
         back_populates="patient",
         cascade="all, delete-orphan",
     )
-
-
 
 
 class PatientIdentifierRecord(Base):

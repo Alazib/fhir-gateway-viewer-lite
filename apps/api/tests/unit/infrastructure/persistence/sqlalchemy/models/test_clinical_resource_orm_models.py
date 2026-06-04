@@ -2,7 +2,10 @@ from sqlalchemy import CheckConstraint, DateTime
 
 from fhir_gateway.domain.entities.observation import ObservationStatus
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 from fhir_gateway.infrastructure.persistence.sqlalchemy.models.condition import (
     ConditionRecord,
 )
@@ -50,6 +53,12 @@ def test_clinical_resource_records_use_timestamp_mixin():
     assert issubclass(EncounterRecord, TimestampMixin)
 
 
+def test_clinical_resource_records_use_logical_deletion_mixin():
+    assert issubclass(ObservationRecord, LogicalDeletionMixin)
+    assert issubclass(ConditionRecord, LogicalDeletionMixin)
+    assert issubclass(EncounterRecord, LogicalDeletionMixin)
+
+
 def test_observation_status_values_match_domain_enum():
     assert OBSERVATION_STATUS_VALUES == tuple(
         status.value for status in ObservationStatus
@@ -69,6 +78,7 @@ def test_observations_table_has_expected_columns():
         "value_unit",
         "created_at",
         "updated_at",
+        "deleted_at",
     }
 
 
@@ -82,6 +92,7 @@ def test_conditions_table_has_expected_columns():
         "recorded_at",
         "created_at",
         "updated_at",
+        "deleted_at",
     }
 
 
@@ -95,6 +106,7 @@ def test_encounters_table_has_expected_columns():
         "period_end_at",
         "created_at",
         "updated_at",
+        "deleted_at",
     }
 
 
@@ -110,6 +122,7 @@ def test_observations_table_has_expected_required_and_nullable_columns():
     assert table.c.value_unit.nullable
     assert not table.c.created_at.nullable
     assert not table.c.updated_at.nullable
+    assert table.c.deleted_at.nullable
 
 
 def test_conditions_table_has_expected_required_and_nullable_columns():
@@ -121,6 +134,7 @@ def test_conditions_table_has_expected_required_and_nullable_columns():
     assert table.c.recorded_at.nullable
     assert not table.c.created_at.nullable
     assert not table.c.updated_at.nullable
+    assert table.c.deleted_at.nullable
 
 
 def test_encounters_table_has_expected_required_and_nullable_columns():
@@ -132,6 +146,7 @@ def test_encounters_table_has_expected_required_and_nullable_columns():
     assert table.c.period_end_at.nullable
     assert not table.c.created_at.nullable
     assert not table.c.updated_at.nullable
+    assert table.c.deleted_at.nullable
 
 
 def test_clinical_resource_datetime_columns_are_timezone_aware():
@@ -142,14 +157,33 @@ def test_clinical_resource_datetime_columns_are_timezone_aware():
     assert isinstance(observation_table.c.effective_at.type, DateTime)
     assert observation_table.c.effective_at.type.timezone
 
+    assert isinstance(observation_table.c.deleted_at.type, DateTime)
+    assert observation_table.c.deleted_at.type.timezone
+
     assert isinstance(condition_table.c.recorded_at.type, DateTime)
     assert condition_table.c.recorded_at.type.timezone
+
+    assert isinstance(condition_table.c.deleted_at.type, DateTime)
+    assert condition_table.c.deleted_at.type.timezone
 
     assert isinstance(encounter_table.c.period_start_at.type, DateTime)
     assert encounter_table.c.period_start_at.type.timezone
 
     assert isinstance(encounter_table.c.period_end_at.type, DateTime)
     assert encounter_table.c.period_end_at.type.timezone
+
+    assert isinstance(encounter_table.c.deleted_at.type, DateTime)
+    assert encounter_table.c.deleted_at.type.timezone
+
+
+def test_clinical_resource_deleted_at_has_no_server_default_or_onupdate():
+    for table in (
+        ObservationRecord.__table__,
+        ConditionRecord.__table__,
+        EncounterRecord.__table__,
+    ):
+        assert table.c.deleted_at.server_default is None
+        assert table.c.deleted_at.onupdate is None
 
 
 def test_observations_table_references_patients_and_observation_codes():
@@ -234,6 +268,18 @@ def test_encounters_table_has_expected_indexes():
         "patient_id",
         "period_start_at",
     )
+
+
+def test_clinical_resource_tables_do_not_have_deleted_at_indexes():
+    for table in (
+        ObservationRecord.__table__,
+        ConditionRecord.__table__,
+        EncounterRecord.__table__,
+    ):
+        for index in table.indexes:
+            assert "deleted_at" not in {
+                column.name for column in index.columns
+            }
 
 
 def test_clinical_resource_timestamp_columns_keep_expected_defaults():

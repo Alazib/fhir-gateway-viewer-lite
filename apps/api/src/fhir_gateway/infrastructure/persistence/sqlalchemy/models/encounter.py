@@ -4,10 +4,13 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
-from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import TimestampMixin
+from fhir_gateway.infrastructure.persistence.sqlalchemy.mixins import (
+    LogicalDeletionMixin,
+    TimestampMixin,
+)
 
 
-class EncounterRecord(TimestampMixin, Base):
+class EncounterRecord(LogicalDeletionMixin, TimestampMixin, Base):
     __tablename__ = "encounters"
 
     __table_args__ = (

@@ -49,6 +49,18 @@ def test_condition_codes_table_has_expected_columns():
     }
 
 
+def test_observation_codes_table_does_not_have_deleted_at():
+    table = ObservationCodeRecord.__table__
+
+    assert "deleted_at" not in table.columns
+
+
+def test_condition_codes_table_does_not_have_deleted_at():
+    table = ConditionCodeRecord.__table__
+
+    assert "deleted_at" not in table.columns
+
+
 def test_observation_codes_table_has_expected_primary_key_and_required_columns():
     table = ObservationCodeRecord.__table__
 

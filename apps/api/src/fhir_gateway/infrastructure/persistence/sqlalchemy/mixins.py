@@ -16,3 +16,10 @@ class TimestampMixin:
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class LogicalDeletionMixin:
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

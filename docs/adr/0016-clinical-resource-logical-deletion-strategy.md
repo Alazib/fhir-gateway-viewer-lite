@@ -6,11 +6,11 @@ Accepted
 
 ## Date
 
-2026-06-02
+2026-06-04
 
 ## Context
 
-Phase 3 has introduced the initial SQLAlchemy/Alembic persistence foundation and the first clinical persistence schemas:
+Phase 3 has introduced the SQLAlchemy/Alembic persistence foundation and the first clinical persistence schemas:
 
 - Patient
 - Patient identifiers
@@ -27,7 +27,7 @@ The project is still before the implementation of:
 - persistence-backed HTTP endpoints
 - request-scoped SQLAlchemy sessions
 - seed data
-- real local PostgreSQL workflow
+- local PostgreSQL workflow
 - clinical write use-cases
 
 This is the right moment to define deletion semantics for persisted clinical resources.
@@ -79,21 +79,21 @@ The meaning is:
     deleted_at IS NOT NULL
         The resource is logically deleted and should be hidden from ordinary application reads.
 
-The following tables should receive `deleted_at`:
+The following tables receive `deleted_at`:
 
 - `patients`
 - `observations`
 - `conditions`
 - `encounters`
 
-The following tables should not receive `deleted_at` in this decision:
+The following tables do not receive `deleted_at` in this decision:
 
 - `patient_identifiers`
 - `observation_codes`
 - `condition_codes`
 - `audit_events`
 
-The `deleted_at` column should be:
+The `deleted_at` column is:
 
 - timezone-aware
 - nullable
@@ -111,7 +111,7 @@ not:
     delete clinical resource
         -> DELETE FROM table
 
-Physical deletion should be reserved for exceptional purge, maintenance, test cleanup, or future explicitly approved retention workflows.
+Physical deletion is reserved for exceptional purge, maintenance, test cleanup, or future explicitly approved retention workflows.
 
 ---
 
@@ -120,9 +120,6 @@ Physical deletion should be reserved for exceptional purge, maintenance, test cl
 Do not use a generic boolean column such as:
 
     active
-
-or:
-
     is_active
 
 for logical deletion.
@@ -154,13 +151,13 @@ at this stage.
 
 The two columns can become inconsistent.
 
-Examples of inconsistent states:
+Examples:
 
     is_deleted = true
     deleted_at = NULL
 
     is_deleted = false
-    deleted_at = 2026-06-02T18:30:00Z
+    deleted_at = 2026-06-04T18:30:00Z
 
 Using only `deleted_at` avoids this ambiguity.
 
@@ -233,7 +230,7 @@ A logically deleted encounter should normally be hidden from ordinary patient su
 
 ### `patient_identifiers`
 
-Do not add `deleted_at` to `patient_identifiers` in this decision.
+Do not add `deleted_at` to `patient_identifiers`.
 
 Reason:
 
@@ -247,7 +244,7 @@ Identifier-level lifecycle can be introduced later if a concrete requirement app
 
 ### `observation_codes`
 
-Do not add `deleted_at` to `observation_codes` in this decision.
+Do not add `deleted_at` to `observation_codes`.
 
 Reason:
 
@@ -266,7 +263,7 @@ That is outside this ADR.
 
 ### `condition_codes`
 
-Do not add `deleted_at` to `condition_codes` in this decision.
+Do not add `deleted_at` to `condition_codes`.
 
 Reason:
 
@@ -278,7 +275,7 @@ Terminology/catalog lifecycle should be handled separately.
 
 ### `audit_events`
 
-Do not add `deleted_at` to `audit_events` in this decision.
+Do not add `deleted_at` to `audit_events`.
 
 Reason:
 
@@ -294,15 +291,15 @@ Audit retention, redaction, hiding, tamper evidence, and purge policies require 
 
 Introduce a reusable SQLAlchemy mixin for logical deletion metadata.
 
-Recommended class:
+Class:
 
     LogicalDeletionMixin
 
-Recommended location:
+Location:
 
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mixins.py
 
-Recommended column:
+Column:
 
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -338,7 +335,7 @@ but audit events should not use the same pattern by default because audit events
 
 Do not add `deleted_at` to the current domain entities in this correction.
 
-Affected domain entities currently remain:
+Affected domain entities remain:
 
 - `Patient`
 - `Observation`
@@ -425,16 +422,16 @@ This ADR only establishes the persistence deletion strategy.
 
 Do not edit historical migrations that have already been reviewed and committed.
 
-Create a new manual Alembic migration after the current clinical resource migration.
+Create a new manual Alembic migration after the clinical resource migration.
 
-The new migration should add nullable `deleted_at` columns to:
+The new migration adds nullable `deleted_at` columns to:
 
 - `patients`
 - `observations`
 - `conditions`
 - `encounters`
 
-The migration should not add:
+The migration does not add:
 
 - indexes
 - triggers
@@ -445,7 +442,7 @@ The migration should not add:
 - domain fields
 - physical delete workflows
 
-Downgrade should remove the columns.
+Downgrade removes the columns.
 
 ---
 
@@ -468,15 +465,6 @@ Future PostgreSQL-specific optimization may introduce partial indexes such as:
 but only after real adapter queries and performance needs exist.
 
 Existing indexes remain unchanged.
-
-Current existing indexes such as:
-
-    ix_observations_patient_code
-    ix_observations_patient_effective_at
-    ix_conditions_patient_code
-    ix_encounters_patient_period_start_at
-
-should not be changed in this correction.
 
 ---
 
@@ -651,7 +639,7 @@ Accepted.
 ### Negative consequences
 
 - ORM models and migrations need an additional correction now.
-- Documentation must be updated again.
+- Documentation must be updated.
 - Tests must be updated.
 - Future adapters must consistently filter out logically deleted rows.
 - Query performance may later require partial indexes.
@@ -673,7 +661,7 @@ Accepted.
 
 ## Implementation timing
 
-This correction should be implemented before:
+This correction is implemented before:
 
 - AuditEvent ORM model and migration
 - ORM/domain mappers

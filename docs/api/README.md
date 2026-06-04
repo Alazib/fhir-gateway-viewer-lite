@@ -21,6 +21,7 @@ The backend includes:
 - Observation persistence schema
 - Condition persistence schema
 - Encounter persistence schema
+- logical deletion metadata for top-level clinical resources
 
 Clinical HTTP endpoints are not implemented yet.
 
@@ -156,11 +157,21 @@ Current persistence status:
 - Observation ORM schema exists.
 - Condition ORM schema exists.
 - Encounter ORM schema exists.
+- Top-level clinical resources include logical deletion metadata through `deleted_at`.
 - AuditEvent ORM schema is pending.
 - ORM/domain mappers are pending.
 - SQLAlchemy adapters are pending.
 - Request-scoped SQLAlchemy session management is pending.
 - No clinical HTTP endpoint uses persistence yet.
+
+Current top-level clinical resource tables with logical deletion metadata:
+
+- `patients.deleted_at`
+- `observations.deleted_at`
+- `conditions.deleted_at`
+- `encounters.deleted_at`
+
+The API does not expose `deleted_at` through HTTP responses at this stage.
 
 Current Alembic migration chain:
 
@@ -169,10 +180,16 @@ Current Alembic migration chain:
     f97f9d019499_create_patient_tables
         ↓
     ab48a83daad7_add_clinical_resource_tables
+        ↓
+    d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
 
 Persistence details are documented separately in:
 
     docs/persistence/README.md
+
+Logical deletion strategy is documented in:
+
+    docs/adr/0016-clinical-resource-logical-deletion-strategy.md
 
 ---
 
@@ -329,6 +346,8 @@ Useful Alembic inspection commands:
     pipenv run alembic history --verbose
     pipenv run alembic heads --verbose
     pipenv run alembic upgrade head --sql
+    pipenv run alembic upgrade base:head --sql
+    pipenv run alembic downgrade d4e8f2a1c9b7:ab48a83daad7 --sql
 
 Do not run database migrations against PostgreSQL until a local PostgreSQL workflow has been created and configured.
 
@@ -431,6 +450,32 @@ Advanced audit filtering and pagination are deferred.
 
 ---
 
+## Logical deletion API behavior
+
+Logical deletion has been introduced at the persistence schema level only.
+
+Affected tables:
+
+- `patients`
+- `observations`
+- `conditions`
+- `encounters`
+
+Current API behavior:
+
+- no endpoint exposes `deleted_at`
+- no endpoint performs logical deletion
+- no endpoint restores logically deleted resources
+- no endpoint includes deleted resources by explicit option
+
+Future ordinary clinical endpoints should hide logically deleted resources by default.
+
+Future admin/audit endpoints may decide whether deleted resources can be queried explicitly.
+
+The exact HTTP response behavior for logically deleted resources, such as `404 Not Found`, will be decided when persistence-backed endpoints are implemented.
+
+---
+
 ## API design principles
 
 As the API evolves:
@@ -445,6 +490,8 @@ As the API evolves:
 8. Use infrastructure adapters to implement application ports.
 9. Preserve structured clinical evidence in API responses.
 10. Avoid broad generic repositories until repeated adapter needs justify them.
+11. Hide logically deleted clinical resources from ordinary public reads by default.
+12. Do not expose technical persistence metadata unless explicitly designed.
 
 ---
 
@@ -461,6 +508,10 @@ to HTTP responses such as:
 
 - `400 Bad Request`
 - `404 Not Found`
+
+Logical deletion may affect future not-found semantics.
+
+For ordinary clinical endpoints, a logically deleted resource may be treated as not found unless an explicit admin/audit endpoint says otherwise.
 
 This will be decided before exposing clinical use-cases through HTTP.
 
@@ -494,3 +545,4 @@ Related ADRs:
 - ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
 - ADR 0013: Centralized runtime configuration
 - ADR 0014: Database timestamp and audit metadata strategy
+- ADR 0016: Clinical resource logical deletion strategy

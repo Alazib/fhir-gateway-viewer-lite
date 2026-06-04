@@ -1,16 +1,15 @@
 # ADR 0015: AuditEvent persistence strategy
-
 ## Status
 
 Accepted
 
 ## Date
 
-2026-06-02
+2026-06-04
 
 ## Context
 
-The project includes a domain-level `AuditEvent` entity and an application-level `ListAuditEvents` use-case.
+The project includes a domain-level `AuditEvent` entity and an application-level `ListAuditEventsUseCase`.
 
 The current domain entity is:
 
@@ -60,11 +59,20 @@ Phase 3 introduces the persistence foundation for the current core entities requ
 
 Patient, Observation, Condition, and Encounter persistence schemas have already been introduced through SQLAlchemy ORM models and Alembic migrations.
 
-The next persistence schema is `AuditEvent`.
+ADR 0016 has also introduced logical deletion metadata for top-level clinical resources:
+
+    deleted_at
+
+on:
+
+- `patients`
+- `observations`
+- `conditions`
+- `encounters`
 
 Audit event persistence is conceptually different from ordinary clinical resource persistence.
 
-Clinical resources represent current clinical data.
+Clinical resources represent current or historically retained clinical data.
 
 Audit events represent historical traces of actions performed in or through the system.
 
@@ -100,9 +108,14 @@ The initial persistence model will use:
 - audited entity represented as resource type plus resource id
 - technical row insertion timestamp
 
-The table will not use the shared `TimestampMixin` by default.
+The table will not use the shared `TimestampMixin`.
 
-The table will not include `updated_at` by default.
+The table will not use `LogicalDeletionMixin`.
+
+The table will not include:
+
+    updated_at
+    deleted_at
 
 The audited entity will be represented by:
 
@@ -159,7 +172,7 @@ The initial table should be named:
 Expected columns:
 
 | Column | Type | Nullable | Purpose |
-|---|---:|---:|---|
+|---|---|---|---|
 | `id` | string | no | Stores `ResourceId.value`; primary key |
 | `recorded_at` | timezone-aware datetime | no | Maps `AuditEvent.recorded`; when the audited action happened |
 | `agent` | string | no | Required free-form actor/system/client string |
@@ -171,6 +184,7 @@ Expected columns:
 The initial table should not include:
 
     updated_at
+    deleted_at
 
 ---
 
@@ -199,6 +213,10 @@ Allowed `entity_resource_type` values:
     Encounter
 
 The exact supported entity resource types should align with the current domain `Reference.resource_type` rules.
+
+The `agent` column is required and must not be blank, but the database should not attempt to validate the full semantics of the actor identity.
+
+Agent identity consistency belongs to future trusted runtime context and audit write pipeline design.
 
 ---
 
@@ -273,9 +291,48 @@ Once recorded, an audit event should generally be treated as append-oriented his
 
 Updating an audit row silently would weaken its meaning as a trace.
 
-For this reason, the initial schema does not include `updated_at`.
+For this reason, the initial schema does not include:
+
+    updated_at
 
 If future requirements need correction, redaction, supersession, or invalidation of audit records, those concepts should be modeled explicitly rather than handled as ordinary row updates.
+
+---
+
+### Audit events are not logically deleted like clinical resources
+
+ADR 0016 introduces logical deletion for top-level clinical resources using:
+
+    deleted_at
+
+on:
+
+- `patients`
+- `observations`
+- `conditions`
+- `encounters`
+
+That strategy should not be applied to `audit_events`.
+
+Clinical resources may become hidden from ordinary reads while remaining physically present.
+
+Audit events are different: they are historical traces.
+
+Adding `deleted_at` to `audit_events` would imply ordinary audit events can be hidden through the same lifecycle mechanism as clinical resources.
+
+That is not a safe default.
+
+Audit retention, audit redaction, audit purge, and audit tamper-evidence require separate security/compliance decisions.
+
+Therefore, `AuditEventRecord` must not use:
+
+    LogicalDeletionMixin
+
+and the `audit_events` table must not include:
+
+    deleted_at
+
+in this phase.
 
 ---
 
@@ -303,16 +360,16 @@ Example:
 
 An event happened at:
 
-    2026-06-02T10:00:00Z
+    2026-06-04T10:00:00Z
 
 but was persisted at:
 
-    2026-06-02T10:00:02Z
+    2026-06-04T10:00:02Z
 
 Then:
 
-    recorded_at = 2026-06-02T10:00:00Z
-    created_at = 2026-06-02T10:00:02Z
+    recorded_at = 2026-06-04T10:00:00Z
+    created_at = 2026-06-04T10:00:02Z
 
 The audit event time and database insertion time must not be collapsed into one concept.
 
@@ -464,22 +521,32 @@ Example:
 
 | id | recorded_at | agent | action | entity_resource_type | entity_id |
 |---|---|---|---|---|---|
-| `audit-001` | `2026-06-02T10:00:00Z` | `user:99830132` | `read` | `Patient` | `pat-001` |
-| `audit-002` | `2026-06-02T10:05:00Z` | `system:fhir-gateway` | `search` | `Observation` | `obs-001` |
+| `audit-001` | `2026-06-04T10:00:00Z` | `user:99830132` | `read` | `Patient` | `pat-001` |
+| `audit-002` | `2026-06-04T10:05:00Z` | `system:fhir-gateway` | `search` | `Observation` | `obs-001` |
 
 This aligns with the domain concept of referencing resources while keeping the audit schema simple and durable.
 
 ---
 
-### Audit records should survive deletion of audited resources
+### Audit records should survive deletion or hiding of audited resources
 
-Audit logs often need to preserve historical traces even if the resource they refer to is later deleted, archived, or transformed.
+Audit logs often need to preserve historical traces even if the resource they refer to is later deleted, archived, logically deleted, or transformed.
 
-A direct foreign key with cascade delete would be dangerous because deleting a clinical row could delete the audit trace.
+ADR 0016 makes ordinary clinical deletion logical rather than physical.
 
-A direct foreign key with restrict or no-action behavior would preserve the audit row, but would also block deletion of the referenced clinical resource while audit rows still reference it.
+This means audited clinical rows normally remain physically present even after being hidden from ordinary reads.
 
-That is not the desired default behavior for the initial Phase 3 audit schema.
+That improves historical traceability.
+
+However, this does not require audit events to use foreign keys to clinical resource tables.
+
+Reasons:
+
+- `AuditEvent.entity` can point to multiple resource types.
+- A single ordinary foreign key cannot point to multiple target tables.
+- Multiple nullable foreign keys would complicate the schema.
+- Future physical purge workflows should not automatically delete audit history.
+- Audit history should preserve the logical reference even if the clinical row is later purged by an exceptional workflow.
 
 Therefore, the initial audit schema should not enforce a database foreign key from `audit_events.entity_id` to the referenced clinical resource table.
 
@@ -537,7 +604,7 @@ Advantages:
 - supports multiple resource types
 - aligns with domain `Reference`
 - avoids premature polymorphic FK complexity
-- audit records can survive resource deletion
+- audit records can survive resource deletion, logical deletion, or later purge workflows
 - resource deletion is not blocked by audit rows
 - sufficient for recent audit event listing
 - can be indexed later for entity-based lookup
@@ -715,9 +782,10 @@ Track as:
 - The table supports recent audit event listing.
 - Audit events can refer to multiple resource types.
 - Audit records are not automatically deleted with clinical resources.
-- Audit records do not block deletion of clinical resources.
+- Audit records do not block deletion or logical deletion of clinical resources.
 - `recorded_at` remains clearly separate from `created_at`.
 - The model avoids misleading `updated_at` semantics.
+- The model avoids inappropriate `deleted_at` semantics for audit history.
 - `action` is protected by a database check constraint.
 - `agent` remains flexible enough for future authentication/system identities.
 - The schema remains infrastructure-only and does not contaminate domain/application layers.
@@ -734,6 +802,7 @@ Track as:
 - Future write actions will require a new domain and database constraint change.
 - If audit requirements become stricter, the schema may need hardening.
 - Not using `updated_at` means this table intentionally differs from other top-level ORM-managed tables.
+- Not using `deleted_at` means audit hiding/redaction/purge must be designed separately.
 - Not modeling `agent` as a foreign key means agent identity consistency depends on future trusted runtime context.
 
 ---
@@ -751,7 +820,7 @@ Track as:
 - Revisit audit write enforcement when authentication and authorization exist.
 - Track entity-based audit lookup index as backlog.
 - Track write-side audit actions as backlog.
-- Document the difference between `recorded_at`, `created_at`, row timestamps, and audit events.
+- Document the difference between `recorded_at`, `created_at`, row timestamps, logical deletion, and audit events.
 
 ---
 
@@ -782,10 +851,15 @@ Expected SQLAlchemy column shape:
 The model should not use:
 
     TimestampMixin
+    LogicalDeletionMixin
 
-because `TimestampMixin` includes `updated_at`.
+because:
 
-The model may define `created_at` explicitly using:
+- `TimestampMixin` includes `updated_at`
+- `LogicalDeletionMixin` includes `deleted_at`
+- audit events are append-oriented records
+
+The model should define `created_at` explicitly using:
 
     DateTime(timezone=True)
     server_default=func.now()
@@ -831,6 +905,8 @@ The migration should not include:
 - authentication
 - authorization
 - full audit write enforcement
+- entity lookup index
+- write-side audit actions
 
 ---
 
@@ -849,6 +925,30 @@ This ADR builds on that distinction.
 Generic row timestamps are not a substitute for audit trail.
 
 The `audit_events` table intentionally does not use `updated_at` by default because audit events are append-oriented records.
+
+---
+
+## Relationship with ADR 0016
+
+ADR 0016 defines the logical deletion strategy for top-level clinical resources.
+
+This ADR builds on that distinction.
+
+Clinical resources use:
+
+    deleted_at
+
+to hide resources from ordinary future reads without physically deleting them.
+
+Audit events do not use:
+
+    deleted_at
+
+because audit retention, hiding, purge, redaction, and tamper-evidence require separate security/compliance decisions.
+
+Clinical resource logical deletion makes audit references more stable because audited clinical rows normally remain physically present.
+
+However, audit events still use logical polymorphic references rather than foreign keys because `AuditEvent.entity` can point to multiple resource types.
 
 ---
 
@@ -932,7 +1032,11 @@ Track future clinical write actions through:
 
 Do not add `updated_at` by default.
 
-Do not use `TimestampMixin` by default.
+Do not add `deleted_at` by default.
+
+Do not use `TimestampMixin`.
+
+Do not use `LogicalDeletionMixin`.
 
 Do not add polymorphic foreign keys in Phase 3.
 

@@ -22,10 +22,13 @@ The backend includes:
 - Condition persistence schema
 - Encounter persistence schema
 - logical deletion metadata for top-level clinical resources
+- AuditEvent persistence schema
 
 Clinical HTTP endpoints are not implemented yet.
 
 No clinical HTTP endpoint is currently backed by database persistence.
+
+No audit HTTP endpoint is currently backed by database persistence.
 
 Planned future endpoint groups include:
 
@@ -158,11 +161,12 @@ Current persistence status:
 - Condition ORM schema exists.
 - Encounter ORM schema exists.
 - Top-level clinical resources include logical deletion metadata through `deleted_at`.
-- AuditEvent ORM schema is pending.
+- AuditEvent ORM schema exists.
 - ORM/domain mappers are pending.
 - SQLAlchemy adapters are pending.
 - Request-scoped SQLAlchemy session management is pending.
 - No clinical HTTP endpoint uses persistence yet.
+- No audit HTTP endpoint uses persistence yet.
 
 Current top-level clinical resource tables with logical deletion metadata:
 
@@ -171,7 +175,13 @@ Current top-level clinical resource tables with logical deletion metadata:
 - `conditions.deleted_at`
 - `encounters.deleted_at`
 
+Current audit table:
+
+- `audit_events`
+
 The API does not expose `deleted_at` through HTTP responses at this stage.
+
+The API does not expose `audit_events` through HTTP at this stage.
 
 Current Alembic migration chain:
 
@@ -182,6 +192,8 @@ Current Alembic migration chain:
     ab48a83daad7_add_clinical_resource_tables
         ↓
     d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
+        ↓
+    a6f3c9d2e1b8_add_audit_event_table
 
 Persistence details are documented separately in:
 
@@ -190,6 +202,10 @@ Persistence details are documented separately in:
 Logical deletion strategy is documented in:
 
     docs/adr/0016-clinical-resource-logical-deletion-strategy.md
+
+AuditEvent persistence strategy is documented in:
+
+    docs/adr/0015-audit-event-persistence-strategy.md
 
 ---
 
@@ -264,6 +280,7 @@ It does not access:
 - database
 - authentication
 - clinical data
+- audit data
 
 ### Request
 
@@ -341,13 +358,17 @@ Run clinical resource ORM model tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_clinical_resource_orm_models.py
 
+Run AuditEvent ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_audit_event_orm_models.py
+
 Useful Alembic inspection commands:
 
     pipenv run alembic history --verbose
     pipenv run alembic heads --verbose
     pipenv run alembic upgrade head --sql
     pipenv run alembic upgrade base:head --sql
-    pipenv run alembic downgrade d4e8f2a1c9b7:ab48a83daad7 --sql
+    pipenv run alembic downgrade a6f3c9d2e1b8:d4e8f2a1c9b7 --sql
 
 Do not run database migrations against PostgreSQL until a local PostgreSQL workflow has been created and configured.
 
@@ -365,9 +386,11 @@ The API does not yet expose:
 - authentication
 - authorization
 - persistence-backed clinical data
+- persistence-backed audit data
 - application use-case wiring through HTTP
 - API error response envelope
 - clinical Pydantic request/response schemas
+- audit Pydantic response schemas
 - concrete SQLAlchemy adapters
 - ORM/domain mappers
 - request-scoped SQLAlchemy session dependency
@@ -389,6 +412,11 @@ Related use-case:
 
     SearchPatientsUseCase
 
+Future persistence behavior:
+
+- should query `patients`
+- should hide logically deleted patients by default using `patients.deleted_at IS NULL`
+
 ---
 
 ### Patient summary
@@ -398,6 +426,12 @@ Related use-case:
 Related use-case:
 
     GetPatientSummaryUseCase
+
+Future persistence behavior:
+
+- should query Patient data
+- should include related Observations, Conditions, and Encounters
+- should hide logically deleted resources by default
 
 ---
 
@@ -416,6 +450,12 @@ Clinical code identity should be based on:
 
 The display text should not be used as the code identity.
 
+Future persistence behavior:
+
+- should query `observations`
+- should join or resolve `observation_codes`
+- should hide logically deleted observations by default
+
 ---
 
 ### Patient bundle export
@@ -429,6 +469,11 @@ Related use-case:
 The application layer returns a `PatientBundle` application model.
 
 Final HTTP JSON serialization will be handled in the API/interface layer later.
+
+Future persistence behavior:
+
+- should export the patient bundle from persistence-backed data
+- should define explicitly whether logically deleted resources are excluded by default
 
 ---
 
@@ -445,6 +490,13 @@ Initial expected behavior:
 - default limit: `50`
 - maximum limit: `100`
 - ordered from newest to oldest
+
+Current persistence status:
+
+- `audit_events` table exists
+- HTTP endpoint is not implemented yet
+- SQLAlchemy audit adapter is not implemented yet
+- ORM/domain mapper is not implemented yet
 
 Advanced audit filtering and pagination are deferred.
 
@@ -476,6 +528,39 @@ The exact HTTP response behavior for logically deleted resources, such as `404 N
 
 ---
 
+## Audit API behavior
+
+AuditEvent persistence exists at the database schema level.
+
+Current table:
+
+    audit_events
+
+Current API behavior:
+
+- no `/audit-events` endpoint exists yet
+- no persistence-backed audit listing exists yet
+- no audit write pipeline exists yet
+- no current-agent provider exists yet
+- no authentication or authorization exists yet
+
+Future audit listing should use:
+
+    ListAuditEventsUseCase
+
+and return audit events ordered from newest to oldest.
+
+Future audit creation must not allow arbitrary user-controlled request bodies to decide the `agent` value.
+
+The `agent` should come from trusted runtime context, such as:
+
+- authenticated principal
+- system identity
+- background job identity
+- local/demo identity
+
+---
+
 ## API design principles
 
 As the API evolves:
@@ -492,6 +577,7 @@ As the API evolves:
 10. Avoid broad generic repositories until repeated adapter needs justify them.
 11. Hide logically deleted clinical resources from ordinary public reads by default.
 12. Do not expose technical persistence metadata unless explicitly designed.
+13. Do not let arbitrary request input define audit `agent`.
 
 ---
 
@@ -527,6 +613,8 @@ Future clinical and audit endpoints should not be treated as public by default.
 
 Authentication, RBAC, and audit trail enforcement belong to later phases.
 
+Audit event creation should eventually use trusted runtime context for `agent`.
+
 The current local default `database_url` is for development only.
 
 Production database credentials must be provided through environment variables or a future secrets management strategy.
@@ -545,4 +633,5 @@ Related ADRs:
 - ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
 - ADR 0013: Centralized runtime configuration
 - ADR 0014: Database timestamp and audit metadata strategy
+- ADR 0015: AuditEvent persistence strategy
 - ADR 0016: Clinical resource logical deletion strategy

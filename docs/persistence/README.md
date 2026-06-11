@@ -23,17 +23,20 @@ The backend currently includes:
 - Condition ORM schema
 - Encounter ORM schema
 - logical deletion metadata for top-level clinical resources
+- AuditEvent ORM schema
 - manual Patient migration
 - manual clinical resource tables migration
 - manual logical deletion metadata migration
+- manual AuditEvent table migration
 - ORM metadata tests
 - migration SQL rendering validation
 - architecture boundary tests preventing SQLAlchemy imports in domain/application
 - constrained domain `Reference.resource_type`
 - ADR 0014 database timestamp and audit metadata strategy
+- ADR 0015 AuditEvent persistence strategy
 - ADR 0016 clinical resource logical deletion strategy
 
-Current clinical persistence schemas:
+Current clinical and audit persistence schemas:
 
 | Resource / table group | Status |
 |---|---|
@@ -45,7 +48,7 @@ Current clinical persistence schemas:
 | Condition | Implemented |
 | Encounter | Implemented |
 | Logical deletion metadata | Implemented |
-| AuditEvent | Pending |
+| AuditEvent | Implemented |
 
 No SQLAlchemy adapter has been implemented yet.
 
@@ -68,6 +71,7 @@ It covers:
 - current database schema
 - timestamp strategy
 - logical deletion strategy
+- audit event persistence strategy
 - persistence design principles
 - current limitations
 - future persistence work
@@ -127,6 +131,7 @@ Current structure:
         ├── mixins.py
         └── models/
             ├── __init__.py
+            ├── audit_event.py
             ├── condition.py
             ├── encounter.py
             ├── observation.py
@@ -138,6 +143,7 @@ Responsibilities:
 - `database.py`: provides helpers to create SQLAlchemy engines and session factories.
 - `mixins.py`: contains reusable SQLAlchemy persistence mixins.
 - `models/`: contains SQLAlchemy ORM models.
+- `models/audit_event.py`: defines AuditEvent persistence records.
 - `models/patient.py`: defines Patient and Patient identifier persistence records.
 - `models/observation.py`: defines Observation code catalog and Observation records.
 - `models/condition.py`: defines Condition code catalog and Condition records.
@@ -187,9 +193,6 @@ Current ORM tables registered in metadata:
     observations
     conditions
     encounters
-
-Pending persistence table:
-
     audit_events
 
 Alembic uses this metadata to understand the target schema.
@@ -239,7 +242,7 @@ Selected convention:
 - `created_at` and `updated_at` are technical persistence metadata.
 - They are not clinical dates.
 - They are not audit events.
-- Top-level ORM-managed tables include `created_at` and `updated_at`.
+- Top-level clinical ORM-managed tables include `created_at` and `updated_at`.
 - Dependent component tables do not receive timestamps by default.
 - Domain entities do not receive `created_at` or `updated_at` by default.
 - HTTP APIs do not expose technical timestamps by default.
@@ -271,6 +274,19 @@ Known limitation:
 Trigger-based hardening is tracked separately:
 
     BACKLOG / HARDEN / P3+ / Add database triggers for updated_at consistency
+
+Important AuditEvent exception:
+
+    audit_events.created_at exists
+    audit_events.updated_at does not exist
+
+Reason:
+
+Audit events are append-oriented records.
+
+This exception is defined in:
+
+    ADR 0015: AuditEvent persistence strategy
 
 ---
 
@@ -324,13 +340,92 @@ Unaffected tables:
 - `patient_identifiers`
 - `observation_codes`
 - `condition_codes`
-- future `audit_events`
+- `audit_events`
 
 No indexes involving `deleted_at` are introduced at this stage.
 
 Future adapters must filter ordinary reads with:
 
     deleted_at IS NULL
+
+---
+
+## AuditEvent persistence strategy
+
+AuditEvent persistence behavior is defined by:
+
+    ADR 0015: AuditEvent persistence strategy
+
+Audit events are persisted in:
+
+    audit_events
+
+Audit events are append-oriented historical records.
+
+They are not ordinary clinical resources.
+
+They do not use:
+
+    TimestampMixin
+    LogicalDeletionMixin
+
+The table includes:
+
+    created_at
+
+but does not include:
+
+    updated_at
+    deleted_at
+
+Reason:
+
+- `created_at` records when the audit row was inserted
+- `recorded_at` records when the audited action happened
+- `updated_at` would imply ordinary mutable row lifecycle
+- `deleted_at` would imply ordinary clinical-resource logical deletion semantics
+- audit retention, redaction, purge, and tamper-evidence require separate decisions
+
+Audit events reference audited resources using:
+
+    entity_resource_type
+    entity_id
+
+not foreign keys.
+
+Reason:
+
+- `AuditEvent.entity` may refer to different resource types
+- a single FK cannot point to multiple target tables
+- multiple nullable FKs would be heavier and more fragile
+- audit records should survive ordinary logical deletion and possible future purge workflows
+
+Current supported entity resource types:
+
+    Patient
+    Observation
+    Condition
+    Encounter
+
+Current supported actions:
+
+    read
+    search
+    export
+
+Future write-side actions such as:
+
+    create
+    update
+    delete
+
+are deferred to:
+
+    BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
+
+Entity-based audit lookup index is deferred to:
+
+    BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
 
 ---
 
@@ -364,6 +459,16 @@ Meaning:
     The observation was clinically effective on May 20.
     The observation row was inserted into this database on May 26.
     The observation is not logically deleted.
+
+Audit example:
+
+    audit_events.recorded_at = 2026-06-04 10:00
+    audit_events.created_at = 2026-06-04 10:00:02
+
+Meaning:
+
+    The audited action happened at 10:00.
+    The audit row was inserted into this database at 10:00:02.
 
 Those are different facts.
 
@@ -414,6 +519,7 @@ Audit events are not a substitute for generic row timestamps.
 
 Current ORM model modules:
 
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/audit_event.py
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/patient.py
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/observation.py
     apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/condition.py
@@ -421,6 +527,7 @@ Current ORM model modules:
 
 Defined ORM records:
 
+    AuditEventRecord
     PatientRecord
     PatientIdentifierRecord
     ObservationCodeRecord
@@ -435,14 +542,11 @@ They are not domain entities.
 
 The domain entities remain:
 
+    fhir_gateway.domain.entities.audit_event.AuditEvent
     fhir_gateway.domain.entities.patient.Patient
     fhir_gateway.domain.entities.observation.Observation
     fhir_gateway.domain.entities.condition.Condition
     fhir_gateway.domain.entities.encounter.Encounter
-
-Future ORM records:
-
-    AuditEventRecord
 
 ---
 
@@ -457,9 +561,6 @@ Current database tables represented by SQLAlchemy metadata and Alembic migration
     observations
     conditions
     encounters
-
-Pending persistence table:
-
     audit_events
 
 ---
@@ -470,7 +571,7 @@ The persistence layer uses two ID strategies.
 
 ### Domain resource IDs
 
-Main clinical resources use string IDs because they represent domain `ResourceId` values.
+Main clinical resources and audit events use string IDs because they represent domain `ResourceId` values.
 
 Current tables using string primary keys:
 
@@ -478,6 +579,7 @@ Current tables using string primary keys:
     observations.id
     conditions.id
     encounters.id
+    audit_events.id
 
 These IDs are controlled by the application/domain layer and are not generated by the database.
 
@@ -487,6 +589,7 @@ Examples:
     obs-001
     cond-001
     enc-001
+    audit-001
 
 ### Technical database IDs
 
@@ -516,6 +619,7 @@ Summary:
 | `observations` | `id` | string | no | Stores domain `ResourceId.value` |
 | `conditions` | `id` | string | no | Stores domain `ResourceId.value` |
 | `encounters` | `id` | string | no | Stores domain `ResourceId.value` |
+| `audit_events` | `id` | string | no | Stores domain `ResourceId.value` |
 
 ---
 
@@ -847,6 +951,71 @@ Notes:
 
 ---
 
+## Table: `audit_events`
+
+The `audit_events` table stores the persistence representation of the domain `AuditEvent` resource.
+
+Current columns:
+
+| Column | Type | Nullable | Purpose |
+|---|---|---|---|
+| `id` | string | no | Stores `ResourceId.value`; primary key |
+| `recorded_at` | timezone-aware datetime | no | Audit/domain timestamp; maps `AuditEvent.recorded` |
+| `agent` | string | no | Actor/system/client string supplied by trusted runtime context |
+| `action` | string | no | Audit action value |
+| `entity_resource_type` | string | no | Referenced entity resource type |
+| `entity_id` | string | no | Referenced entity resource id |
+| `created_at` | timezone-aware datetime | no | Technical insertion timestamp |
+
+Forbidden columns:
+
+| Column | Reason |
+|---|---|
+| `updated_at` | Audit events are append-oriented records |
+| `deleted_at` | Audit events do not follow ordinary clinical logical deletion semantics |
+
+Current constraints:
+
+| Name | Type | Purpose |
+|---|---|---|
+| primary key on `id` | primary key | Identifies each persisted AuditEvent |
+| `ck_audit_events_action_allowed` | check constraint | Restricts action to current `AuditAction` values |
+| `ck_audit_events_entity_resource_type_allowed` | check constraint | Restricts entity resource type to supported reference resource types |
+| `ck_audit_events_agent_not_empty` | check constraint | Prevents blank agent strings |
+
+Current indexes:
+
+| Name | Columns | Purpose |
+|---|---|---|
+| `ix_audit_events_recorded_at` | `recorded_at` | Supports listing recent audit events |
+
+Current allowed actions:
+
+    read
+    search
+    export
+
+Current allowed entity resource types:
+
+    Patient
+    Observation
+    Condition
+    Encounter
+
+Notes:
+
+- `recorded_at` is the audit event timestamp.
+- `created_at` is the technical database insertion timestamp.
+- `agent` is required but not modeled as a foreign key, enum, or catalog.
+- `agent` must come from trusted runtime context in future audit write behavior.
+- `entity_resource_type` and `entity_id` form a logical polymorphic reference.
+- `entity_id` has no foreign key.
+- `audit_events` does not use `TimestampMixin`.
+- `audit_events` does not use `LogicalDeletionMixin`.
+- No entity lookup index exists yet.
+
+---
+
 ## Code catalog design
 
 Observation and Condition codes use separate catalog tables:
@@ -930,6 +1099,53 @@ If the domain enum changes later, a new migration should update the database che
 
 ---
 
+## AuditAction design
+
+`AuditAction` is not persisted through a catalog table.
+
+Do not create:
+
+    audit_actions
+
+Instead:
+
+    audit_events.action
+
+is stored as a string with a check constraint.
+
+Reason:
+
+- `AuditAction` is currently a small closed set
+- current actions are enough for read-side and export-side use-cases
+- the domain enum remains the application source of truth
+- the database check constraint protects persistence integrity
+
+Current persisted allowed values:
+
+    read
+    search
+    export
+
+Important migration note:
+
+The Alembic migration freezes these values deliberately.
+
+Migrations are historical schema steps and should not import the live domain enum directly.
+
+If the domain enum changes later, a new migration should update the database check constraint.
+
+Future write-side actions such as:
+
+    create
+    update
+    delete
+
+are deferred to:
+
+    BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
+
+---
+
 ## Quantity design
 
 `Observation.value` is persisted as explicit columns:
@@ -969,7 +1185,7 @@ Current supported values:
     Condition
     Encounter
 
-However, `Observation`, `Condition`, and `Encounter` subjects currently must reference `Patient`.
+`Observation`, `Condition`, and `Encounter` subjects currently must reference `Patient`.
 
 Therefore, their persistence tables use:
 
@@ -982,9 +1198,21 @@ not:
 
 This keeps the schema relational and aligned with current domain rules.
 
-Future `AuditEventRecord` may need a different representation because `AuditEvent.entity` may reference different supported resource types.
+`AuditEvent.entity` is different because it may reference multiple supported resource types.
 
-That belongs to the future AuditEvent persistence sub-issue.
+Therefore, `audit_events` uses:
+
+    entity_resource_type
+    entity_id
+
+not:
+
+    patient_id
+    observation_id
+    condition_id
+    encounter_id
+
+and not a foreign key.
 
 ---
 
@@ -992,7 +1220,7 @@ That belongs to the future AuditEvent persistence sub-issue.
 
 The current schema avoids simple `patient_id` indexes when a composite index already starts with `patient_id`.
 
-Current composite indexes:
+Current clinical composite indexes:
 
     ix_observations_patient_code
     ix_observations_patient_effective_at
@@ -1007,14 +1235,27 @@ Reason:
 - avoiding redundant simple indexes reduces write overhead and storage
 - index additions should remain tied to concrete query patterns
 
-No indexes involving `deleted_at` are introduced yet.
+Current audit index:
+
+    ix_audit_events_recorded_at
 
 Reason:
 
-- no SQLAlchemy adapters exist yet
-- no query plans exist yet
-- no local PostgreSQL workflow exists yet
-- partial indexes would be premature
+- supports listing recent audit events
+- aligns with current `ListAuditEventsUseCase`
+- current use-case orders by recent audit time
+
+No indexes involving `deleted_at` are introduced yet.
+
+No audit entity lookup index is introduced yet.
+
+Deferred audit entity lookup index:
+
+    ix_audit_events_entity(entity_resource_type, entity_id)
+
+Tracked by:
+
+    BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
 
 Future index changes should be guided by actual adapter queries and, eventually, database query plans.
 
@@ -1057,6 +1298,8 @@ Current migration chain:
     ab48a83daad7_add_clinical_resource_tables
         ↓
     d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
+        ↓
+    a6f3c9d2e1b8_add_audit_event_table
 
 The Patient migration creates:
 
@@ -1095,12 +1338,25 @@ The logical deletion migration adds:
     conditions.deleted_at
     encounters.deleted_at
 
-The logical deletion migration does not add:
+The AuditEvent migration creates:
 
-- indexes
-- constraints
-- triggers
+    audit_events
+
+It also creates:
+
+    ck_audit_events_action_allowed
+    ck_audit_events_entity_resource_type_allowed
+    ck_audit_events_agent_not_empty
+    ix_audit_events_recorded_at
+
+The AuditEvent migration does not add:
+
+- `updated_at`
+- `deleted_at`
+- entity lookup index
+- foreign keys to clinical tables
 - seed data
+- triggers
 - mappers
 - adapters
 - HTTP behavior
@@ -1125,17 +1381,17 @@ Show current heads:
 
     pipenv run alembic heads --verbose
 
-Render SQL from the current clinical schema to the logical deletion migration:
+Render SQL from the current logical deletion schema to the AuditEvent migration:
 
-    pipenv run alembic upgrade ab48a83daad7:head --sql
+    pipenv run alembic upgrade d4e8f2a1c9b7:head --sql
 
 Render SQL from base to head:
 
     pipenv run alembic upgrade base:head --sql
 
-Render downgrade from logical deletion migration to previous migration:
+Render downgrade from AuditEvent migration to previous migration:
 
-    pipenv run alembic downgrade d4e8f2a1c9b7:ab48a83daad7 --sql
+    pipenv run alembic downgrade a6f3c9d2e1b8:d4e8f2a1c9b7 --sql
 
 Do not run migrations against PostgreSQL until the local PostgreSQL workflow has been explicitly configured.
 
@@ -1159,6 +1415,10 @@ Run mixin tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/test_mixins.py
 
+Run AuditEvent ORM model tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_audit_event_orm_models.py
+
 Run architecture boundary tests:
 
     pipenv run pytest tests/unit/architecture
@@ -1177,7 +1437,6 @@ Current validated state:
 
 The persistence layer does not yet include:
 
-- AuditEvent ORM model
 - ORM/domain mappers
 - SQLAlchemy adapters
 - request-scoped SQLAlchemy session management
@@ -1189,23 +1448,32 @@ The persistence layer does not yet include:
 - logical delete/restore use-cases
 - physical purge workflow
 - partial indexes for logically non-deleted rows
+- audit event reader adapter
+- audit event writer adapter
+- current-agent provider
+- audit event recorder service
+- audit middleware
+- authentication/authorization integration
+- entity-based audit filtering
+- advanced audit pagination
 - trigger-based `updated_at` hardening
 
 ---
 
 ## Planned persistence work
 
-Likely next work after this correction:
+Likely next work after this persistence schema slice:
 
-1. Add AuditEvent ORM model and migration.
-2. Add ORM/domain mappers.
-3. Add SQLAlchemy adapters.
-4. Wire selected persistence-backed use-cases through HTTP/dependencies.
-5. Add local PostgreSQL workflow.
-6. Add Alembic autogeneration workflow.
-7. Add integration testing strategy.
-8. Add seed data strategy.
-9. Add trigger hardening if needed.
+1. Add ORM/domain mappers.
+2. Add SQLAlchemy adapters.
+3. Wire selected persistence-backed use-cases through HTTP/dependencies.
+4. Add local PostgreSQL workflow.
+5. Add Alembic autogeneration workflow.
+6. Add integration testing strategy.
+7. Add seed data strategy.
+8. Add trigger hardening if needed.
+9. Add audit event reader adapter.
+10. Add controlled audit event write pipeline later.
 
 ---
 
@@ -1226,6 +1494,9 @@ Likely next work after this correction:
 13. Use logical deletion for top-level clinical resources.
 14. Hide logically deleted resources from ordinary future reads by default.
 15. Do not add indexes until query patterns justify them.
+16. Treat audit events as append-oriented records.
+17. Do not use ordinary clinical logical deletion for audit events.
+18. Do not let arbitrary user-controlled input define audit `agent`.
 
 ---
 
@@ -1234,6 +1505,7 @@ Likely next work after this correction:
 - ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
 - ADR 0013: Centralized runtime configuration
 - ADR 0014: Database timestamp and audit metadata strategy
+- ADR 0015: AuditEvent persistence strategy
 - ADR 0016: Clinical resource logical deletion strategy
 
 ---

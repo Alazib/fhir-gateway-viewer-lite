@@ -3,6 +3,7 @@ from fhir_gateway.infrastructure.persistence.sqlalchemy.base import Base
 
 
 EXPECTED_MODEL_TABLES = {
+    "AuditEventRecord": "audit_events",
     "ConditionCodeRecord": "condition_codes",
     "ConditionRecord": "conditions",
     "EncounterRecord": "encounters",

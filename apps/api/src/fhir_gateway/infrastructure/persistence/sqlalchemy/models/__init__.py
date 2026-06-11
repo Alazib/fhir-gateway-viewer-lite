@@ -1,3 +1,6 @@
+from fhir_gateway.infrastructure.persistence.sqlalchemy.models.audit_event import (
+    AuditEventRecord,
+)
 from fhir_gateway.infrastructure.persistence.sqlalchemy.models.condition import (
     ConditionCodeRecord,
     ConditionRecord,
@@ -15,6 +18,7 @@ from fhir_gateway.infrastructure.persistence.sqlalchemy.models.patient import (
 )
 
 __all__ = [
+    "AuditEventRecord",
     "ConditionCodeRecord",
     "ConditionRecord",
     "EncounterRecord",

@@ -24,6 +24,13 @@ The backend currently includes:
 - Encounter ORM schema
 - logical deletion metadata for top-level clinical resources
 - AuditEvent ORM schema
+- ORM/domain mapper package
+- Patient ORM/domain mapper
+- Observation ORM/domain mapper
+- Condition ORM/domain mapper
+- Encounter ORM/domain mapper
+- AuditEvent ORM/domain mapper
+- ORM/domain mapper tests
 - manual Patient migration
 - manual clinical resource tables migration
 - manual logical deletion metadata migration
@@ -52,7 +59,7 @@ Current clinical and audit persistence schemas:
 
 No SQLAlchemy adapter has been implemented yet.
 
-No ORM/domain mapper has been implemented yet.
+ORM/domain mappers have been implemented for the current Phase 3 read-side persistence resources.
 
 No HTTP endpoint is currently backed by database persistence.
 
@@ -68,6 +75,7 @@ It covers:
 - SQLAlchemy structure
 - Alembic migrations
 - current ORM models
+- ORM/domain mapper strategy
 - current database schema
 - timestamp strategy
 - logical deletion strategy
@@ -129,6 +137,13 @@ Current structure:
         ├── base.py
         ├── database.py
         ├── mixins.py
+        ├── mappers/
+        │   ├── __init__.py
+        │   ├── audit_event.py
+        │   ├── condition.py
+        │   ├── encounter.py
+        │   ├── observation.py
+        │   └── patient.py
         └── models/
             ├── __init__.py
             ├── audit_event.py
@@ -149,6 +164,13 @@ Responsibilities:
 - `models/condition.py`: defines Condition code catalog and Condition records.
 - `models/encounter.py`: defines Encounter records.
 - `models/__init__.py`: imports and exports all current ORM records so they are registered in `Base.metadata`.
+- `mappers/`: contains SQLAlchemy ORM-to-domain mapper functions.
+- `mappers/patient.py`: maps Patient ORM records to the domain `Patient`.
+- `mappers/observation.py`: maps Observation ORM records and Observation code catalog records to the domain `Observation`.
+- `mappers/condition.py`: maps Condition ORM records and Condition code catalog records to the domain `Condition`.
+- `mappers/encounter.py`: maps Encounter ORM records to the domain `Encounter`.
+- `mappers/audit_event.py`: maps AuditEvent ORM records to the domain `AuditEvent`.
+- `mappers/__init__.py`: exposes the current public mapper functions for infrastructure use.
 
 ---
 
@@ -550,6 +572,367 @@ The domain entities remain:
 
 ---
 
+## ORM/domain mappers
+
+ORM/domain mappers are implemented under:
+
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/
+
+Current mapper modules:
+
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/audit_event.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/condition.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/encounter.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/observation.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/patient.py
+
+Current mapper functions:
+
+    audit_event_record_to_domain
+    condition_record_to_domain
+    encounter_record_to_domain
+    observation_record_to_domain
+    patient_record_to_domain
+
+These mappers translate already-loaded SQLAlchemy ORM records into domain entities.
+
+Current mapping direction:
+
+    ORM record -> Domain entity
+
+The reverse direction is intentionally not implemented yet:
+
+    Domain entity -> ORM record
+
+Reason:
+
+The current MVP persistence flow is read-oriented.
+
+Future write-side mapping is deferred to:
+
+    BACKLOG / EXPAND / Post-Iteration 1 / Add domain-to-ORM mapping for write use-cases
+
+### Mapper responsibility
+
+Mappers are responsible for transforming persistence records into domain objects.
+
+Examples:
+
+    PatientRecord -> Patient
+    ObservationRecord + ObservationCodeRecord -> Observation
+    ConditionRecord + ConditionCodeRecord -> Condition
+    EncounterRecord -> Encounter
+    AuditEventRecord -> AuditEvent
+
+Mappers construct real domain entities and value objects.
+
+Examples:
+
+    ResourceId
+    Identifier
+    HumanName
+    Code
+    Reference
+    Instant
+    Period
+    Quantity
+    Patient
+    Observation
+    Condition
+    Encounter
+    AuditEvent
+
+This means mapper output passes through domain validation.
+
+If persisted data is incompatible with domain invariants, mapping should fail rather than silently returning invalid domain objects.
+
+### Mapper non-responsibilities
+
+Mappers must not:
+
+    open database sessions
+    execute SQL queries
+    perform joins
+    perform lazy loading intentionally
+    filter logically deleted records
+    decide query visibility
+    expose technical persistence metadata as domain fields
+    return ORM records
+    return dictionaries instead of domain entities
+
+Querying and loading are adapter responsibilities.
+
+Mapping is transformation responsibility.
+
+### Logical deletion and mappers
+
+Top-level clinical ORM records may include:
+
+    deleted_at
+
+Current affected records:
+
+    PatientRecord
+    ObservationRecord
+    ConditionRecord
+    EncounterRecord
+
+Mappers do not filter by:
+
+    deleted_at IS NULL
+
+Reason:
+
+Logical deletion is a query visibility concern.
+
+Future SQLAlchemy adapters must filter ordinary reads with:
+
+    deleted_at IS NULL
+
+The mapper assumes that if a record is passed to it, it should attempt to map it.
+
+### Technical metadata and mappers
+
+Current technical persistence metadata includes:
+
+    created_at
+    updated_at
+    deleted_at
+
+Current domain entities do not expose these fields by default.
+
+Therefore, ORM/domain mappers ignore these fields.
+
+Examples:
+
+    PatientRecord.created_at      is not mapped to Patient
+    PatientRecord.updated_at      is not mapped to Patient
+    PatientRecord.deleted_at      is not mapped to Patient
+    ObservationRecord.deleted_at  is not mapped to Observation
+    AuditEventRecord.created_at   is not mapped to AuditEvent
+
+AuditEvent-specific distinction:
+
+    AuditEventRecord.recorded_at -> AuditEvent.recorded
+    AuditEventRecord.created_at  -> ignored technical insert timestamp
+
+Reason:
+
+`recorded_at` describes when the audited action happened.
+
+`created_at` describes when the audit row was inserted into this database.
+
+### Patient mapper
+
+The Patient mapper converts:
+
+    PatientRecord
+    PatientIdentifierRecord
+
+into:
+
+    Patient
+    ResourceId
+    Identifier
+    HumanName
+
+Current function:
+
+    patient_record_to_domain(record: PatientRecord) -> Patient
+
+Name representation behavior:
+
+    no persisted name data
+        -> Patient.name = None
+
+    name_text present
+        -> HumanName(text=...)
+
+    name_text missing, name_given and name_family present
+        -> HumanName(given=..., family=...)
+
+    partial structured name
+        -> domain validation error
+
+The mapper does not hide partially invalid persisted name data.
+
+If the database contains:
+
+    name_text = NULL
+    name_family = NULL
+    name_given = ["John"]
+
+then `HumanName` validation should reject it because a structured name without `family` is not valid.
+
+A future database hardening item tracks stronger persistence-level enforcement:
+
+    BACKLOG / HARDEN / P3+ / Add Patient name representation database constraint
+
+### Observation mapper
+
+The Observation mapper converts:
+
+    ObservationRecord
+    ObservationCodeRecord
+
+into:
+
+    Observation
+    ResourceId
+    ObservationStatus
+    Code
+    Reference
+    Instant
+    Quantity
+
+Current function:
+
+    observation_record_to_domain(
+        record: ObservationRecord,
+        code_record: ObservationCodeRecord,
+    ) -> Observation
+
+Reason for requiring `ObservationCodeRecord`:
+
+`ObservationRecord` stores:
+
+    code_id
+
+The domain `Observation` requires a full `Code` value object:
+
+    Code(system, code, display)
+
+Therefore, the future adapter must load the matching Observation code catalog record before calling the mapper.
+
+The mapper validates that:
+
+    ObservationRecord.code_id == ObservationCodeRecord.id
+
+This prevents accidentally mapping an Observation with the wrong catalog code.
+
+### Condition mapper
+
+The Condition mapper converts:
+
+    ConditionRecord
+    ConditionCodeRecord
+
+into:
+
+    Condition
+    ResourceId
+    Code
+    Reference
+    Instant | None
+
+Current function:
+
+    condition_record_to_domain(
+        record: ConditionRecord,
+        code_record: ConditionCodeRecord,
+    ) -> Condition
+
+Reason for requiring `ConditionCodeRecord`:
+
+`ConditionRecord` stores:
+
+    code_id
+
+The domain `Condition` requires a full `Code` value object:
+
+    Code(system, code, display)
+
+Therefore, the future adapter must load the matching Condition code catalog record before calling the mapper.
+
+The mapper validates that:
+
+    ConditionRecord.code_id == ConditionCodeRecord.id
+
+This prevents accidentally mapping a Condition with the wrong catalog code.
+
+### Encounter mapper
+
+The Encounter mapper converts:
+
+    EncounterRecord
+
+into:
+
+    Encounter
+    ResourceId
+    Reference
+    Period
+    Instant
+
+Current function:
+
+    encounter_record_to_domain(record: EncounterRecord) -> Encounter
+
+Mapping behavior:
+
+    EncounterRecord.patient_id       -> Reference("Patient", ResourceId(...))
+    EncounterRecord.period_start_at  -> Period.start
+    EncounterRecord.period_end_at    -> Period.end | None
+
+The domain requires `Encounter.period.start` to be present.
+
+Therefore, invalid persisted data without `period_start_at` should fail domain mapping.
+
+### AuditEvent mapper
+
+The AuditEvent mapper converts:
+
+    AuditEventRecord
+
+into:
+
+    AuditEvent
+    ResourceId
+    Instant
+    AuditAction
+    Reference
+
+Current function:
+
+    audit_event_record_to_domain(record: AuditEventRecord) -> AuditEvent
+
+Mapping behavior:
+
+    AuditEventRecord.id                   -> AuditEvent.id
+    AuditEventRecord.recorded_at          -> AuditEvent.recorded
+    AuditEventRecord.agent                -> AuditEvent.agent
+    AuditEventRecord.action               -> AuditEvent.action
+    AuditEventRecord.entity_resource_type -> AuditEvent.entity.resource_type
+    AuditEventRecord.entity_id            -> AuditEvent.entity.id
+
+The mapper does not map:
+
+    AuditEventRecord.created_at
+
+Reason:
+
+`created_at` is a technical insert timestamp.
+
+`recorded_at` is the domain-relevant audit time.
+
+### Lazy loading warning
+
+Some mapper inputs may contain ORM relationships.
+
+Example:
+
+    PatientRecord.identifiers
+
+Mappers should receive already-loaded records.
+
+Future SQLAlchemy adapters should intentionally eager-load required relationship data before mapping.
+
+The hardening of accidental lazy loading is tracked separately:
+
+    BACKLOG / HARDEN / P3+ / Prevent accidental lazy loading in SQLAlchemy mappers
+
+---
+
 ## Current database schema overview
 
 Current database tables represented by SQLAlchemy metadata and Alembic migrations:
@@ -717,13 +1100,19 @@ This relationship is persistence-level structure.
 
 It is not the same thing as the domain entity itself.
 
-A future mapper will translate:
+The current read-side mapper translates:
 
     PatientRecord -> Patient
 
-and, if needed:
+including:
+
+    PatientIdentifierRecord -> Identifier
+
+The reverse direction is intentionally not implemented yet:
 
     Patient -> PatientRecord
+
+Domain-to-ORM mapping is deferred until future write-side use-cases require it.
 
 ---
 
@@ -1411,6 +1800,18 @@ Run ORM model tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
 
+Run ORM/domain mapper tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers
+
+Run a specific mapper test module:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_patient_mapper.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_observation_mapper.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_condition_mapper.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_encounter_mapper.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_audit_event_mapper.py
+
 Run mixin tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/test_mixins.py
@@ -1437,7 +1838,6 @@ Current validated state:
 
 The persistence layer does not yet include:
 
-- ORM/domain mappers
 - SQLAlchemy adapters
 - request-scoped SQLAlchemy session management
 - persistence-backed HTTP endpoints
@@ -1462,18 +1862,18 @@ The persistence layer does not yet include:
 
 ## Planned persistence work
 
-Likely next work after this persistence schema slice:
+Likely next work after this persistence mapper slice:
 
-1. Add ORM/domain mappers.
-2. Add SQLAlchemy adapters.
-3. Wire selected persistence-backed use-cases through HTTP/dependencies.
-4. Add local PostgreSQL workflow.
-5. Add Alembic autogeneration workflow.
-6. Add integration testing strategy.
-7. Add seed data strategy.
-8. Add trigger hardening if needed.
-9. Add audit event reader adapter.
-10. Add controlled audit event write pipeline later.
+1. Add SQLAlchemy adapters.
+2. Wire selected persistence-backed use-cases through HTTP/dependencies.
+3. Add local PostgreSQL workflow.
+4. Add Alembic autogeneration workflow.
+5. Add integration testing strategy.
+6. Add seed data strategy.
+7. Add trigger hardening if needed.
+8. Add audit event reader adapter.
+9. Add controlled audit event write pipeline later.
+10. Add domain-to-ORM mapping when future write-side use-cases require it.
 
 ---
 
@@ -1515,3 +1915,6 @@ Likely next work after this persistence schema slice:
 - BACKLOG / HARDEN / P3+ / Add database triggers for `updated_at` consistency
 - BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
 - BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
+- BACKLOG / HARDEN / P3+ / Prevent accidental lazy loading in SQLAlchemy mappers
+- BACKLOG / EXPAND / Post-Iteration 1 / Add domain-to-ORM mapping for write use-cases
+- BACKLOG / HARDEN / P3+ / Add Patient name representation database constraint

@@ -31,6 +31,13 @@ The backend currently includes:
 - Encounter ORM/domain mapper
 - AuditEvent ORM/domain mapper
 - ORM/domain mapper tests
+- SQLAlchemy read adapter package
+- Patient SQLAlchemy read adapter
+- Observation SQLAlchemy read adapter
+- Condition SQLAlchemy read adapter
+- Encounter SQLAlchemy read adapter
+- AuditEvent SQLAlchemy read adapter
+- SQLAlchemy read adapter tests
 - manual Patient migration
 - manual clinical resource tables migration
 - manual logical deletion metadata migration
@@ -57,7 +64,7 @@ Current clinical and audit persistence schemas:
 | Logical deletion metadata | Implemented |
 | AuditEvent | Implemented |
 
-No SQLAlchemy adapter has been implemented yet.
+SQLAlchemy read adapters have been implemented for the current Phase 3 application read ports.
 
 ORM/domain mappers have been implemented for the current Phase 3 read-side persistence resources.
 
@@ -76,6 +83,7 @@ It covers:
 - Alembic migrations
 - current ORM models
 - ORM/domain mapper strategy
+- SQLAlchemy read adapter strategy
 - current database schema
 - timestamp strategy
 - logical deletion strategy
@@ -137,6 +145,13 @@ Current structure:
         ├── base.py
         ├── database.py
         ├── mixins.py
+        ├── adapters/
+        │   ├── __init__.py
+        │   ├── audit_event_reader.py
+        │   ├── condition_reader.py
+        │   ├── encounter_reader.py
+        │   ├── observation_reader.py
+        │   └── patient_reader.py
         ├── mappers/
         │   ├── __init__.py
         │   ├── audit_event.py
@@ -157,6 +172,13 @@ Responsibilities:
 - `base.py`: defines the SQLAlchemy declarative `Base`.
 - `database.py`: provides helpers to create SQLAlchemy engines and session factories.
 - `mixins.py`: contains reusable SQLAlchemy persistence mixins.
+- `adapters/`: contains SQLAlchemy read adapters implementing current application persistence ports.
+- `adapters/patient_reader.py`: implements Patient read/search ports using SQLAlchemy.
+- `adapters/observation_reader.py`: implements Observation read ports using SQLAlchemy.
+- `adapters/condition_reader.py`: implements Condition read ports using SQLAlchemy.
+- `adapters/encounter_reader.py`: implements Encounter read ports using SQLAlchemy.
+- `adapters/audit_event_reader.py`: implements AuditEvent read ports using SQLAlchemy.
+- `adapters/__init__.py`: exposes the current public SQLAlchemy read adapter classes.
 - `models/`: contains SQLAlchemy ORM models.
 - `models/audit_event.py`: defines AuditEvent persistence records.
 - `models/patient.py`: defines Patient and Patient identifier persistence records.
@@ -253,6 +275,306 @@ That will be introduced later when persistence-backed use-cases are wired throug
 
 ---
 
+## SQLAlchemy read adapters
+
+SQLAlchemy read adapters are implemented under:
+
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/
+
+Current adapter modules:
+
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/audit_event_reader.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/condition_reader.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/encounter_reader.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/observation_reader.py
+    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/patient_reader.py
+
+Current adapter classes:
+
+    SqlAlchemyAuditEventReader
+    SqlAlchemyConditionReader
+    SqlAlchemyEncounterReader
+    SqlAlchemyObservationReader
+    SqlAlchemyPatientReader
+
+Current adapter coverage:
+
+| Adapter | Application port behavior |
+|---|---|
+| `SqlAlchemyPatientReader` | Reads patients by id and searches patients by text |
+| `SqlAlchemyObservationReader` | Lists observations by patient and by patient/code |
+| `SqlAlchemyConditionReader` | Lists conditions by patient |
+| `SqlAlchemyEncounterReader` | Lists encounters by patient |
+| `SqlAlchemyAuditEventReader` | Lists recent audit events |
+
+These adapters are infrastructure implementations of application-layer persistence ports.
+
+They are responsible for:
+
+    building SQLAlchemy SELECT statements
+    applying persistence-level filters such as logical deletion
+    loading related ORM data required by mappers
+    executing queries through a SQLAlchemy Session
+    converting ORM records to domain entities through mapper functions
+
+They must not:
+
+    expose ORM records to the application layer
+    contain business rules that belong in domain or application services
+    commit transactions
+    create database sessions by themselves
+    import HTTP/FastAPI code
+
+Adapters receive an already-created SQLAlchemy `Session`.
+
+The lifecycle of that session belongs to the future HTTP dependency / unit-of-work wiring, not to individual adapters.
+
+Current read adapter direction:
+
+    SQLAlchemy ORM records -> ORM/domain mappers -> Domain entities
+
+The reverse direction is intentionally not implemented yet:
+
+    Domain entities -> SQLAlchemy ORM records
+
+Reason:
+
+The current MVP persistence flow is read-oriented.
+
+Future write-side mapping and persistence are deferred until write-side use-cases require them.
+
+### Patient read adapter
+
+Current class:
+
+    SqlAlchemyPatientReader
+
+Implemented application behaviors:
+
+    get_by_id(patient_id: ResourceId) -> Patient | None
+    search_by_text(search_text: str) -> tuple[Patient, ...]
+
+The adapter maps:
+
+    PatientRecord -> Patient
+
+using:
+
+    patient_record_to_domain
+
+The adapter intentionally eager-loads:
+
+    PatientRecord.identifiers
+
+before calling the mapper.
+
+Reason:
+
+The Patient mapper reads `record.identifiers`.
+
+If identifiers were not intentionally loaded by the adapter, SQLAlchemy could trigger accidental lazy loading inside the mapper.
+
+Current loading strategy:
+
+    selectinload(PatientRecord.identifiers)
+
+This keeps database querying in the adapter and transformation in the mapper.
+
+Ordinary patient reads filter out logically deleted patients with:
+
+    patients.deleted_at IS NULL
+
+Search behavior currently matches patient text against:
+
+    patients.id
+    patients.name_text
+    patients.name_family
+    patient_identifiers.system
+    patient_identifiers.value
+
+The search uses an outer join against patient identifiers so patients without identifiers can still be matched by patient fields.
+
+### Observation read adapter
+
+Current class:
+
+    SqlAlchemyObservationReader
+
+Implemented application behaviors:
+
+    list_by_patient(patient_id: ResourceId) -> tuple[Observation, ...]
+    list_by_patient_and_code(patient_id: ResourceId, code: Code) -> tuple[Observation, ...]
+
+The adapter maps:
+
+    ObservationRecord + ObservationCodeRecord -> Observation
+
+using:
+
+    observation_record_to_domain
+
+The adapter joins:
+
+    observations.code_id -> observation_codes.id
+
+Reason:
+
+`ObservationRecord` stores only:
+
+    code_id
+
+but the domain `Observation` requires a full `Code` value object:
+
+    Code(system, code, display)
+
+Ordinary observation reads filter out logically deleted observations with:
+
+    observations.deleted_at IS NULL
+
+Current ordering:
+
+    observations.effective_at ASC
+    observations.id ASC
+
+### Condition read adapter
+
+Current class:
+
+    SqlAlchemyConditionReader
+
+Implemented application behavior:
+
+    list_by_patient(patient_id: ResourceId) -> tuple[Condition, ...]
+
+The adapter maps:
+
+    ConditionRecord + ConditionCodeRecord -> Condition
+
+using:
+
+    condition_record_to_domain
+
+The adapter joins:
+
+    conditions.code_id -> condition_codes.id
+
+Reason:
+
+`ConditionRecord` stores only:
+
+    code_id
+
+but the domain `Condition` requires a full `Code` value object:
+
+    Code(system, code, display)
+
+Ordinary condition reads filter out logically deleted conditions with:
+
+    conditions.deleted_at IS NULL
+
+Current ordering:
+
+    conditions.recorded_at ASC
+    conditions.id ASC
+
+### Encounter read adapter
+
+Current class:
+
+    SqlAlchemyEncounterReader
+
+Implemented application behavior:
+
+    list_by_patient(patient_id: ResourceId) -> tuple[Encounter, ...]
+
+The adapter maps:
+
+    EncounterRecord -> Encounter
+
+using:
+
+    encounter_record_to_domain
+
+No catalog join is required.
+
+Reason:
+
+`EncounterRecord` already contains the fields required by the current domain mapper:
+
+    id
+    patient_id
+    period_start_at
+    period_end_at
+
+Ordinary encounter reads filter out logically deleted encounters with:
+
+    encounters.deleted_at IS NULL
+
+Current ordering:
+
+    encounters.period_start_at ASC
+    encounters.id ASC
+
+### AuditEvent read adapter
+
+Current class:
+
+    SqlAlchemyAuditEventReader
+
+Implemented application behavior:
+
+    list_recent(limit: int) -> tuple[AuditEvent, ...]
+
+The adapter maps:
+
+    AuditEventRecord -> AuditEvent
+
+using:
+
+    audit_event_record_to_domain
+
+AuditEvent records are append-oriented.
+
+They do not use:
+
+    LogicalDeletionMixin
+    deleted_at
+
+Therefore, the audit event reader does not filter by logical deletion.
+
+Current ordering:
+
+    audit_events.recorded_at DESC
+    audit_events.id ASC
+
+The requested limit is applied with SQL `LIMIT`.
+
+This aligns with the current `ListAuditEventsUseCase`, which validates the requested limit before calling the reader.
+
+### SQLite test considerations for adapters
+
+Adapter unit tests currently use SQLite in-memory databases for speed and local simplicity.
+
+SQLite is not a full PostgreSQL replacement.
+
+Known SQLite differences affecting adapter tests:
+
+- SQLite does not preserve timezone-aware datetimes like PostgreSQL `TIMESTAMP WITH TIME ZONE`.
+- SQLite does not natively support PostgreSQL-specific functions such as `btrim`.
+
+Where needed, adapter tests isolate these differences inside test fixtures or test helpers.
+
+Examples:
+
+- Observation, Condition, Encounter, and AuditEvent adapter tests restore UTC timezone information on ORM records after SQLite roundtrip.
+- AuditEvent adapter tests register a SQLite test-only `btrim` function so the PostgreSQL-oriented audit constraint can be created under SQLite.
+
+These adjustments belong to tests, not to production adapters.
+
+Production-oriented database behavior should later be validated with PostgreSQL integration tests.
+
+---
+
 ## Timestamp strategy
 
 Timestamp behavior is defined by:
@@ -295,7 +617,7 @@ Known limitation:
 
 Trigger-based hardening is tracked separately:
 
-    BACKLOG / HARDEN / P3+ / Add database triggers for updated_at consistency
+    BACKLOG / POST-MVP / HARDEN / Add database triggers for updated_at consistency
 
 Important AuditEvent exception:
 
@@ -366,9 +688,18 @@ Unaffected tables:
 
 No indexes involving `deleted_at` are introduced at this stage.
 
-Future adapters must filter ordinary reads with:
+Current clinical SQLAlchemy read adapters filter ordinary reads with:
 
     deleted_at IS NULL
+
+This applies to:
+
+- Patient
+- Observation
+- Condition
+- Encounter
+
+AuditEvent reads do not apply this filter because audit events do not use logical deletion.
 
 ---
 
@@ -435,6 +766,15 @@ Current supported actions:
     search
     export
 
+Current read behavior is implemented by:
+
+    SqlAlchemyAuditEventReader
+
+It lists recent audit events ordered by:
+
+    recorded_at DESC
+    id ASC
+
 Future write-side actions such as:
 
     create
@@ -443,11 +783,11 @@ Future write-side actions such as:
 
 are deferred to:
 
-    BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
+    BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
 
 Entity-based audit lookup index is deferred to:
 
-    BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
+    BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
 
 ---
 
@@ -610,7 +950,7 @@ The current MVP persistence flow is read-oriented.
 
 Future write-side mapping is deferred to:
 
-    BACKLOG / EXPAND / Post-Iteration 1 / Add domain-to-ORM mapping for write use-cases
+    BACKLOG / I2+ / EXPAND / Add domain-to-ORM mapping for write use-cases
 
 ### Mapper responsibility
 
@@ -685,7 +1025,7 @@ Reason:
 
 Logical deletion is a query visibility concern.
 
-Future SQLAlchemy adapters must filter ordinary reads with:
+SQLAlchemy adapters filter ordinary reads with:
 
     deleted_at IS NULL
 
@@ -766,7 +1106,7 @@ then `HumanName` validation should reject it because a structured name without `
 
 A future database hardening item tracks stronger persistence-level enforcement:
 
-    BACKLOG / HARDEN / P3+ / Add Patient name representation database constraint
+    BACKLOG / I1-MVP-CLOSURE / HARDEN / Add Patient name representation database constraint
 
 ### Observation mapper
 
@@ -802,7 +1142,7 @@ The domain `Observation` requires a full `Code` value object:
 
     Code(system, code, display)
 
-Therefore, the future adapter must load the matching Observation code catalog record before calling the mapper.
+Therefore, the adapter must load the matching Observation code catalog record before calling the mapper.
 
 The mapper validates that:
 
@@ -842,7 +1182,7 @@ The domain `Condition` requires a full `Code` value object:
 
     Code(system, code, display)
 
-Therefore, the future adapter must load the matching Condition code catalog record before calling the mapper.
+Therefore, the adapter must load the matching Condition code catalog record before calling the mapper.
 
 The mapper validates that:
 
@@ -925,11 +1265,11 @@ Example:
 
 Mappers should receive already-loaded records.
 
-Future SQLAlchemy adapters should intentionally eager-load required relationship data before mapping.
+SQLAlchemy adapters should intentionally eager-load required relationship data before mapping.
 
 The hardening of accidental lazy loading is tracked separately:
 
-    BACKLOG / HARDEN / P3+ / Prevent accidental lazy loading in SQLAlchemy mappers
+    BACKLOG / I1-P3 / HARDEN / Prevent accidental lazy loading in SQLAlchemy mappers
 
 ---
 
@@ -1402,6 +1742,7 @@ Notes:
 - `audit_events` does not use `TimestampMixin`.
 - `audit_events` does not use `LogicalDeletionMixin`.
 - No entity lookup index exists yet.
+- Current recent audit reads are implemented by `SqlAlchemyAuditEventReader`.
 
 ---
 
@@ -1531,7 +1872,7 @@ Future write-side actions such as:
 
 are deferred to:
 
-    BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
+    BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
 
 ---
 
@@ -1644,7 +1985,7 @@ Deferred audit entity lookup index:
 
 Tracked by:
 
-    BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
+    BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
 
 Future index changes should be guided by actual adapter queries and, eventually, database query plans.
 
@@ -1804,6 +2145,18 @@ Run ORM/domain mapper tests:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers
 
+Run SQLAlchemy read adapter tests:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters
+
+Run a specific adapter test module:
+
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_patient_reader.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_observation_reader.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_condition_reader.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_encounter_reader.py
+    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_audit_event_reader.py
+
 Run a specific mapper test module:
 
     pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_patient_mapper.py
@@ -1838,7 +2191,6 @@ Current validated state:
 
 The persistence layer does not yet include:
 
-- SQLAlchemy adapters
 - request-scoped SQLAlchemy session management
 - persistence-backed HTTP endpoints
 - local PostgreSQL workflow
@@ -1848,7 +2200,6 @@ The persistence layer does not yet include:
 - logical delete/restore use-cases
 - physical purge workflow
 - partial indexes for logically non-deleted rows
-- audit event reader adapter
 - audit event writer adapter
 - current-agent provider
 - audit event recorder service
@@ -1857,23 +2208,31 @@ The persistence layer does not yet include:
 - entity-based audit filtering
 - advanced audit pagination
 - trigger-based `updated_at` hardening
+- write-side SQLAlchemy adapters
+- domain-to-ORM write mappers
+
+Implemented and no longer listed as limitations:
+
+- SQLAlchemy read adapters
+- audit event reader adapter
 
 ---
 
 ## Planned persistence work
 
-Likely next work after this persistence mapper slice:
+Likely next work after this SQLAlchemy read adapter slice:
 
-1. Add SQLAlchemy adapters.
-2. Wire selected persistence-backed use-cases through HTTP/dependencies.
+1. Wire selected persistence-backed use-cases through HTTP/dependencies.
+2. Add request-scoped SQLAlchemy session management.
 3. Add local PostgreSQL workflow.
 4. Add Alembic autogeneration workflow.
 5. Add integration testing strategy.
 6. Add seed data strategy.
 7. Add trigger hardening if needed.
-8. Add audit event reader adapter.
-9. Add controlled audit event write pipeline later.
-10. Add domain-to-ORM mapping when future write-side use-cases require it.
+8. Add controlled audit event write pipeline later.
+9. Add domain-to-ORM mapping when future write-side use-cases require it.
+10. Add filtered and paginated audit event queries when audit UI/API needs them.
+11. Add entity-based audit event lookup index when entity-scoped audit queries exist.
 
 ---
 
@@ -1883,20 +2242,24 @@ Likely next work after this persistence mapper slice:
 2. Keep domain entities independent from ORM models.
 3. Keep application ports independent from SQLAlchemy.
 4. Use ORM/domain mappers at the infrastructure boundary.
-5. Use Alembic for schema changes.
-6. Prefer explicit manually reviewed migrations at this stage.
-7. Avoid schema expansion without current use-case pressure.
-8. Avoid premature generic repositories.
-9. Keep routers out of persistence details.
-10. Treat technical timestamps as persistence metadata.
-11. Treat clinical dates as domain data.
-12. Treat audit events as separate from row timestamps.
-13. Use logical deletion for top-level clinical resources.
-14. Hide logically deleted resources from ordinary future reads by default.
-15. Do not add indexes until query patterns justify them.
-16. Treat audit events as append-oriented records.
-17. Do not use ordinary clinical logical deletion for audit events.
-18. Do not let arbitrary user-controlled input define audit `agent`.
+5. Use SQLAlchemy adapters to implement application persistence ports.
+6. Use Alembic for schema changes.
+7. Prefer explicit manually reviewed migrations at this stage.
+8. Avoid schema expansion without current use-case pressure.
+9. Avoid premature generic repositories.
+10. Keep routers out of persistence details.
+11. Treat technical timestamps as persistence metadata.
+12. Treat clinical dates as domain data.
+13. Treat audit events as separate from row timestamps.
+14. Use logical deletion for top-level clinical resources.
+15. Hide logically deleted resources from ordinary reads by default.
+16. Do not add indexes until query patterns justify them.
+17. Treat audit events as append-oriented records.
+18. Do not use ordinary clinical logical deletion for audit events.
+19. Do not let arbitrary user-controlled input define audit `agent`.
+20. Do not let mappers trigger accidental database queries.
+21. Do not commit transactions inside read adapters.
+22. Do not create database sessions inside read adapters.
 
 ---
 
@@ -1912,9 +2275,13 @@ Likely next work after this persistence mapper slice:
 
 ## Related backlog items
 
-- BACKLOG / HARDEN / P3+ / Add database triggers for `updated_at` consistency
-- BACKLOG / EXPAND / P3+ / Add entity-based audit event lookup index
-- BACKLOG / EXPAND / P3+ / Extend AuditAction for clinical write operations
-- BACKLOG / HARDEN / P3+ / Prevent accidental lazy loading in SQLAlchemy mappers
-- BACKLOG / EXPAND / Post-Iteration 1 / Add domain-to-ORM mapping for write use-cases
-- BACKLOG / HARDEN / P3+ / Add Patient name representation database constraint
+- BACKLOG / I1-P3 / HARDEN / Prevent accidental lazy loading in SQLAlchemy mappers
+- BACKLOG / I1-P5 / ARCH / Define API error response envelope before clinical endpoints
+- BACKLOG / I1-DEMO / HARDEN / Define curated terminology policy for demo Observation and Condition codes
+- BACKLOG / I1-DEMO / HARDEN / Define curated Quantity.unit policy for demo clinical observations
+- BACKLOG / I1-MVP-CLOSURE / HARDEN / Add Patient name representation database constraint
+- BACKLOG / I2 / EXPAND / Add filtered and paginated audit event queries
+- BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
+- BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
+- BACKLOG / I2+ / EXPAND / Add domain-to-ORM mapping for write use-cases
+- BACKLOG / POST-MVP / HARDEN / Add database triggers for `updated_at` consistency

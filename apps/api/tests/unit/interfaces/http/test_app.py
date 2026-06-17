@@ -2,7 +2,8 @@ import pytest
 
 from fhir_gateway.infrastructure.config.settings import get_settings
 from fhir_gateway.interfaces.http.app import create_app
-
+from sqlalchemy.orm import Session, sessionmaker
+from fhir_gateway.interfaces.http.app import create_app
 
 ENVIRONMENT_VARIABLES = (
     "FHIR_GATEWAY_APP_NAME",
@@ -43,3 +44,16 @@ def test_create_app_uses_environment_settings(monkeypatch: pytest.MonkeyPatch):
 
     assert app.title == "Test API"
     assert app.version == "9.9.9"
+
+def test_create_app_configures_session_factory():
+    app = create_app()
+
+    assert hasattr(app.state, "session_factory")
+    assert isinstance(app.state.session_factory, sessionmaker)
+
+    session = app.state.session_factory()
+
+    try:
+        assert isinstance(session, Session)
+    finally:
+        session.close()

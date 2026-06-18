@@ -1,5 +1,3 @@
-"""SQLAlchemy persistence adapters."""
-
 """SQLAlchemy read adapters for application persistence ports."""
 
 from fhir_gateway.infrastructure.persistence.sqlalchemy.adapters.audit_event_reader import (

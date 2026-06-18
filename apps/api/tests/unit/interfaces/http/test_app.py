@@ -1,9 +1,8 @@
 import pytest
-
 from fhir_gateway.infrastructure.config.settings import get_settings
 from fhir_gateway.interfaces.http.app import create_app
 from sqlalchemy.orm import Session, sessionmaker
-from fhir_gateway.interfaces.http.app import create_app
+
 
 ENVIRONMENT_VARIABLES = (
     "FHIR_GATEWAY_APP_NAME",

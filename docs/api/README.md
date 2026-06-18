@@ -1,6 +1,6 @@
 # FHIR Mini-Gateway API Documentation
 
-## Status
+## 1. Status
 
 Current API status: **Phase 3 / Backend foundation**
 
@@ -27,6 +27,8 @@ The backend includes:
 * SQLAlchemy read adapters for the current application ports
 * request-scoped SQLAlchemy session management through HTTP dependencies
 * HTTP dependency wiring for the current read-side application use-cases
+* Ruff quality baseline for the API package
+* GitHub Actions API CI workflow for linting and tests
 
 Clinical HTTP endpoints are not implemented yet.
 
@@ -35,6 +37,8 @@ Audit HTTP endpoints are not implemented yet.
 No clinical or audit HTTP endpoint is currently exposed over persistence-backed data.
 
 However, persistence-backed read-side dependency wiring is now implemented for the current Phase 2 application use-cases.
+
+A minimal API quality gate is also available locally and in GitHub Actions.
 
 Planned future endpoint groups include:
 
@@ -52,7 +56,7 @@ docs/persistence/README.md
 
 ---
 
-## Purpose
+## 2. Purpose
 
 The FHIR Mini-Gateway API is the HTTP backend interface for the `FHIR Gateway Viewer Lite` project.
 
@@ -71,7 +75,7 @@ Do not use real patient data.
 
 ---
 
-## Current HTTP structure
+## 3. Current HTTP structure
 
 Current structure:
 
@@ -109,7 +113,7 @@ The domain and application layers must not depend on SQLAlchemy.
 
 ---
 
-## Runtime configuration
+## 4. Runtime configuration
 
 Runtime settings are defined in:
 
@@ -159,7 +163,7 @@ Runtime configuration is centralized so that infrastructure concerns such as log
 
 ---
 
-## Logging
+## 5. Logging
 
 Basic logging is configured in:
 
@@ -183,7 +187,7 @@ Logging is configured during FastAPI app creation using the configured `FHIR_GAT
 
 ---
 
-## Persistence status
+## 6. Persistence status
 
 The backend includes a SQLAlchemy/Alembic persistence foundation.
 
@@ -254,7 +258,7 @@ docs/adr/0015-audit-event-persistence-strategy.md
 
 ---
 
-## HTTP dependency wiring
+## 7. HTTP dependency wiring
 
 The API now includes HTTP dependency wiring for persistence-backed read use-cases.
 
@@ -357,7 +361,7 @@ Clinical and audit endpoints remain intentionally deferred until endpoint contra
 
 ---
 
-## Local development
+## 8. Local development
 
 Run all backend commands from:
 
@@ -383,9 +387,17 @@ Install dependencies:
 pipenv install
 ```
 
+Install dependencies exactly from the lockfile:
+
+```
+pipenv sync --dev
+```
+
+Use `pipenv sync --dev` especially in reproducible environments such as CI, because it installs the locked dependency set from `Pipfile.lock`, including development tools such as Ruff and pytest.
+
 ---
 
-## Running the API locally
+## 9. Running the API locally
 
 Because the backend uses a `src/` layout, the package lives under:
 
@@ -413,7 +425,7 @@ CTRL + C
 
 ---
 
-## Interactive documentation
+## 10. Interactive documentation
 
 FastAPI exposes interactive API documentation automatically.
 
@@ -433,9 +445,9 @@ At the current stage, these pages only expose `/health`.
 
 ---
 
-## Endpoint: Health check
+## 11. Endpoint: Health check
 
-### `GET /health`
+### 11.1. `GET /health`
 
 Checks whether the API process is alive and responding.
 
@@ -450,13 +462,13 @@ It does not access:
 * clinical data
 * audit data
 
-### Request
+### 11.2. Request
 
 ```
 GET /health
 ```
 
-### Successful response
+### 11.3. Successful response
 
 Status code:
 
@@ -472,7 +484,7 @@ Body:
 }
 ```
 
-### Browser example
+### 11.4. Browser example
 
 Open:
 
@@ -488,13 +500,13 @@ Expected response:
 }
 ```
 
-### PowerShell example
+### 11.5. PowerShell example
 
 ```
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-### curl example
+### 11.6. curl example
 
 ```
 curl http://127.0.0.1:8000/health
@@ -502,13 +514,42 @@ curl http://127.0.0.1:8000/health
 
 ---
 
-## Testing
+## 12. Testing and quality gate
+
+### 12.1. Full test suite
 
 Run the full test suite from `apps/api`:
 
 ```
 pipenv run pytest
 ```
+
+### 12.2. Local API quality gate
+
+Run the local API quality gate from `apps/api`:
+
+```
+pipenv run ruff check src tests
+pipenv run pytest
+```
+
+This is the local equivalent of the GitHub Actions API CI workflow.
+
+The quality gate currently checks:
+
+* Ruff linting for `src` and `tests`
+* the full pytest suite
+* architecture boundary tests as part of pytest
+
+The quality gate does not yet run:
+
+* mypy
+* coverage threshold enforcement
+* PostgreSQL integration tests
+* Alembic migrations against a real PostgreSQL database
+* deployment checks
+
+### 12.3. HTTP tests
 
 Run HTTP tests:
 
@@ -522,6 +563,8 @@ Run HTTP dependency wiring tests:
 pipenv run pytest tests/unit/interfaces/http/dependencies
 ```
 
+### 12.4. Settings and logging tests
+
 Run settings tests:
 
 ```
@@ -534,11 +577,17 @@ Run logging tests:
 pipenv run pytest tests/unit/infrastructure/test_logging.py
 ```
 
+### 12.5. Architecture boundary tests
+
 Run architecture boundary tests:
 
 ```
 pipenv run pytest tests/unit/architecture
 ```
+
+These tests protect the project boundaries, especially the rule that domain and application layers must remain independent from FastAPI and SQLAlchemy.
+
+### 12.6. Persistence tests
 
 Run persistence tests:
 
@@ -582,6 +631,8 @@ Run SQLAlchemy adapter tests:
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters
 ```
 
+### 12.7. Alembic inspection commands
+
 Useful Alembic inspection commands:
 
 ```
@@ -596,7 +647,82 @@ Do not run database migrations against PostgreSQL until a local PostgreSQL workf
 
 ---
 
-## Current limitations
+## 13. Continuous integration
+
+### 13.1. Workflow file
+
+The API package includes a GitHub Actions workflow:
+
+```
+.github/workflows/api-ci.yml
+```
+
+The workflow is named:
+
+```
+API CI
+```
+
+### 13.2. Purpose
+
+The workflow runs the backend quality gate automatically for API-related changes.
+
+Current workflow checks:
+
+```
+pipenv run ruff check src tests
+pipenv run pytest
+```
+
+The workflow runs from:
+
+```
+apps/api
+```
+
+The workflow installs dependencies through Pipenv using the locked dependency set.
+
+### 13.3. Triggers
+
+The workflow is triggered for:
+
+* pull requests that modify `apps/api/**` or the workflow file itself
+* pushes to `main` that modify `apps/api/**` or the workflow file itself
+
+### 13.4. What happens if CI fails?
+
+If GitHub Actions detects a Ruff error or test failure after a push:
+
+* the push is not automatically cancelled
+* the commit remains in the remote branch
+* the workflow run is marked as failed
+* the repository shows a red failing check for that commit
+* a later fix commit or revert is needed to make the branch green again
+
+CI reports whether the pushed code passes the quality gate. It does not undo the push by itself.
+
+If branch protection rules are configured later, GitHub can prevent merging Pull Requests unless the workflow is green.
+
+If direct pushes to `main` are restricted later, GitHub can enforce stricter rules before changes reach `main`.
+
+### 13.5. Current CI limitations
+
+This CI baseline is intentionally minimal.
+
+It does not yet include:
+
+* PostgreSQL service containers
+* real database migration execution
+* integration tests against PostgreSQL
+* type checking with mypy
+* coverage thresholds
+* deployment steps
+
+Those checks can be added later when the project needs them.
+
+---
+
+## 14. Current limitations
 
 The API does not yet expose:
 
@@ -620,11 +746,11 @@ The API already contains read-side wiring for the current application use-cases,
 
 ---
 
-## Planned endpoints
+## 15. Planned endpoints
 
 The following endpoints are planned but not implemented yet.
 
-### Patient search
+### 15.1. Patient search
 
 ```
 GET /patients?search={text}
@@ -652,7 +778,7 @@ Expected persistence behavior:
 
 ---
 
-### Patient summary
+### 15.2. Patient summary
 
 ```
 GET /patients/{patient_id}/summary
@@ -680,7 +806,7 @@ Expected persistence behavior:
 
 ---
 
-### Observations by code
+### 15.3. Observations by code
 
 ```
 GET /patients/{patient_id}/observations?system={system}&code={code}
@@ -716,7 +842,7 @@ Expected persistence behavior:
 
 ---
 
-### Patient bundle export
+### 15.4. Patient bundle export
 
 ```
 GET /patients/{patient_id}/bundle
@@ -747,7 +873,7 @@ Expected persistence behavior:
 
 ---
 
-### Audit events
+### 15.5. Audit events
 
 ```
 GET /audit-events?limit={limit}
@@ -777,7 +903,7 @@ Advanced audit filtering and pagination are deferred.
 
 ---
 
-## Logical deletion API behavior
+## 16. Logical deletion API behavior
 
 Logical deletion has been introduced at the persistence schema level.
 
@@ -808,7 +934,7 @@ The exact HTTP response behavior for logically deleted resources, such as `404 N
 
 ---
 
-## Audit API behavior
+## 17. Audit API behavior
 
 AuditEvent persistence exists at the database schema level.
 
@@ -851,7 +977,7 @@ The `agent` should come from trusted runtime context, such as:
 
 ---
 
-## API design principles
+## 18. API design principles
 
 As the API evolves:
 
@@ -869,10 +995,11 @@ As the API evolves:
 12. Hide logically deleted clinical resources from ordinary public reads by default.
 13. Do not expose technical persistence metadata unless explicitly designed.
 14. Do not let arbitrary request input define audit `agent`.
+15. Keep the local quality gate and CI workflow aligned.
 
 ---
 
-## Error handling
+## 19. Error handling
 
 A standard API error response envelope has not been defined yet.
 
@@ -894,7 +1021,7 @@ This will be decided before exposing clinical use-cases through HTTP.
 
 ---
 
-## Security status
+## 20. Security status
 
 Authentication and authorization are not implemented yet.
 
@@ -912,7 +1039,7 @@ Production database credentials must be provided through environment variables o
 
 ---
 
-## Related documentation
+## 21. Related documentation
 
 Persistence documentation:
 

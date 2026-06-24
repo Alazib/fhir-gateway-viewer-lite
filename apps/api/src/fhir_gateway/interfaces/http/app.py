@@ -8,13 +8,13 @@ from fhir_gateway.infrastructure.persistence.sqlalchemy.database import (
     create_database_engine,
     create_session_factory,
 )
+from fhir_gateway.interfaces.http.error_handlers import register_exception_handlers
 from fhir_gateway.interfaces.http.routers.health import router as health_router
 
 logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
-
     settings = get_settings()
 
     configure_logging(settings.log_level)
@@ -33,6 +33,8 @@ def create_app() -> FastAPI:
     )
 
     app.state.session_factory = session_factory
+
+    register_exception_handlers(app)
 
     app.include_router(health_router)
 

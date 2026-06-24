@@ -1007,6 +1007,8 @@ Future HTTP endpoints will need to map application errors such as:
 
 * `ApplicationValidationError`
 * `ApplicationNotFoundError`
+* `DomainValidationError`
+
 
 to HTTP responses such as:
 

@@ -2,7 +2,7 @@
 
 ## 1. Status
 
-Current API status: **Phase 3 / Backend foundation**
+Current API status: **Phase 4 / Security foundation in progress**
 
 The API currently exposes one technical endpoint:
 
@@ -27,12 +27,17 @@ The backend includes:
 * SQLAlchemy read adapters for the current application ports
 * request-scoped SQLAlchemy session management through HTTP dependencies
 * HTTP dependency wiring for the current read-side application use-cases
+* standard API error response envelope
+* HTTP exception handler foundation for application, domain, not-found, and unexpected errors
+* dedicated security documentation entry point
 * Ruff quality baseline for the API package
 * GitHub Actions API CI workflow for linting and tests
 
 Clinical HTTP endpoints are not implemented yet.
 
 Audit HTTP endpoints are not implemented yet.
+
+Authentication and authorization dependencies are not implemented yet.
 
 No clinical or audit HTTP endpoint is currently exposed over persistence-backed data.
 
@@ -50,8 +55,14 @@ Planned future endpoint groups include:
 
 For persistence details, see:
 
-```
+```text
 docs/persistence/README.md
+```
+
+For security details, see:
+
+```text
+docs/security/README.md
 ```
 
 ---
@@ -77,31 +88,43 @@ Do not use real patient data.
 
 ## 3. Current HTTP structure
 
+## 3.1. Package structure
+
 Current structure:
 
-```
+```text
 apps/api/src/fhir_gateway/interfaces/http/
 ├── __init__.py
 ├── app.py
+├── error_handlers.py
 ├── main.py
 ├── dependencies/
 │   ├── __init__.py
 │   ├── adapters.py
 │   ├── database.py
 │   └── use_cases.py
-└── routers/
+├── routers/
+│   ├── __init__.py
+│   └── health.py
+└── schemas/
     ├── __init__.py
-    └── health.py
+    └── errors.py
 ```
 
-Responsibilities:
+## 3.2. Responsibilities
+
+Current responsibilities:
 
 * `app.py`: creates and configures the FastAPI application.
 * `main.py`: exposes the ASGI `app` object used by Uvicorn.
+* `error_handlers.py`: registers HTTP exception handlers and maps internal errors to the standard API error envelope.
 * `dependencies/database.py`: provides request-scoped SQLAlchemy session access.
 * `dependencies/adapters.py`: wires SQLAlchemy read adapters from the current request session.
 * `dependencies/use_cases.py`: wires application use-cases from concrete read adapters.
 * `routers/health.py`: defines the `/health` endpoint.
+* `schemas/errors.py`: defines the standard API error response schema.
+
+## 3.3. Boundary rules
 
 The HTTP layer may depend on FastAPI.
 
@@ -111,17 +134,23 @@ The domain and application layers must not depend on FastAPI.
 
 The domain and application layers must not depend on SQLAlchemy.
 
+Application and domain errors remain framework-independent.
+
+HTTP error mapping belongs to the HTTP/interface layer.
+
 ---
 
 ## 4. Runtime configuration
 
+## 4.1. Settings location
+
 Runtime settings are defined in:
 
-```
+```text
 apps/api/src/fhir_gateway/infrastructure/config/settings.py
 ```
 
-Current settings:
+## 4.2. Current settings
 
 | Setting        | Environment variable        | Default                                                              |
 | -------------- | --------------------------- | -------------------------------------------------------------------- |
@@ -131,18 +160,18 @@ Current settings:
 | `log_level`    | `FHIR_GATEWAY_LOG_LEVEL`    | `INFO`                                                               |
 | `database_url` | `FHIR_GATEWAY_DATABASE_URL` | `postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway` |
 
-Allowed `environment` values:
+## 4.3. Allowed environment values
 
-```
+```text
 local
 test
 development
 production
 ```
 
-Allowed `log_level` values:
+## 4.4. Allowed log level values
 
-```
+```text
 DEBUG
 INFO
 WARNING
@@ -150,44 +179,62 @@ ERROR
 CRITICAL
 ```
 
-Example PowerShell overrides:
+## 4.5. Example PowerShell overrides
 
-```
+```powershell
 $env:FHIR_GATEWAY_LOG_LEVEL = "DEBUG"
 $env:FHIR_GATEWAY_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway"
 ```
+
+## 4.6. Configuration principle
 
 Settings are loaded through `pydantic-settings`.
 
 Runtime configuration is centralized so that infrastructure concerns such as logging and database connectivity do not define their own scattered environment variable logic.
 
+Security settings will be added during Phase 4.
+
+Security settings are documented in:
+
+```text
+docs/security/README.md
+```
+
 ---
 
 ## 5. Logging
 
+## 5.1. Logging location
+
 Basic logging is configured in:
 
-```
+```text
 apps/api/src/fhir_gateway/infrastructure/logging.py
 ```
 
-Current format:
+## 5.2. Current format
 
-```
+```text
 %(asctime)s %(levelname)s [%(name)s] %(message)s
 ```
 
-Example output:
+## 5.3. Example output
 
-```
+```text
 2026-05-18 10:30:00 INFO [fhir_gateway.interfaces.http.app] Creating FastAPI application for environment: local
 ```
 
+## 5.4. Logging behavior
+
 Logging is configured during FastAPI app creation using the configured `FHIR_GATEWAY_LOG_LEVEL`.
+
+Unexpected HTTP errors are logged internally by the HTTP error handler before returning a safe generic `500 Internal Server Error` response to clients.
 
 ---
 
 ## 6. Persistence status
+
+## 6.1. Current persistence foundation
 
 The backend includes a SQLAlchemy/Alembic persistence foundation.
 
@@ -209,12 +256,16 @@ Current persistence status:
 * No clinical HTTP endpoint uses persistence yet.
 * No audit HTTP endpoint uses persistence yet.
 
+## 6.2. Logical deletion metadata
+
 Current top-level clinical resource tables with logical deletion metadata:
 
 * `patients.deleted_at`
 * `observations.deleted_at`
 * `conditions.deleted_at`
 * `encounters.deleted_at`
+
+## 6.3. Audit table
 
 Current audit table:
 
@@ -224,9 +275,9 @@ The API does not expose `deleted_at` through HTTP responses at this stage.
 
 The API does not expose `audit_events` through HTTP at this stage.
 
-Current Alembic migration chain:
+## 6.4. Current Alembic migration chain
 
-```
+```text
 <base>
     ↓
 f97f9d019499_create_patient_tables
@@ -238,21 +289,23 @@ d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
 a6f3c9d2e1b8_add_audit_event_table
 ```
 
+## 6.5. Persistence documentation
+
 Persistence details are documented separately in:
 
-```
+```text
 docs/persistence/README.md
 ```
 
 Logical deletion strategy is documented in:
 
-```
+```text
 docs/adr/0016-clinical-resource-logical-deletion-strategy.md
 ```
 
 AuditEvent persistence strategy is documented in:
 
-```
+```text
 docs/adr/0015-audit-event-persistence-strategy.md
 ```
 
@@ -260,21 +313,25 @@ docs/adr/0015-audit-event-persistence-strategy.md
 
 ## 7. HTTP dependency wiring
 
-The API now includes HTTP dependency wiring for persistence-backed read use-cases.
+## 7.1. Current dependency layer
+
+The API includes HTTP dependency wiring for persistence-backed read use-cases.
 
 This wiring is intentionally located in:
 
-```
+```text
 apps/api/src/fhir_gateway/interfaces/http/dependencies/
 ```
 
-Current dependency modules:
+## 7.2. Current dependency modules
 
-```
+```text
 database.py
 adapters.py
 use_cases.py
 ```
+
+## 7.3. Dependency responsibilities
 
 Responsibilities:
 
@@ -282,9 +339,9 @@ Responsibilities:
 * `adapters.py` builds SQLAlchemy read adapters from the current request session.
 * `use_cases.py` builds application use-cases from those adapters.
 
-Runtime flow:
+## 7.4. Runtime flow
 
-```
+```text
 FastAPI request
     -> get_database_session()
         -> SQLAlchemy Session
@@ -292,9 +349,11 @@ FastAPI request
                 -> application use-cases
 ```
 
+## 7.5. Application startup flow
+
 The application startup flow prepares the session factory:
 
-```
+```text
 Settings.database_url
     -> create_database_engine(...)
     -> create_session_factory(...)
@@ -303,24 +362,28 @@ Settings.database_url
 
 The request flow then uses that factory:
 
-```
+```text
 request
     -> request.app
         -> request.app.state.session_factory
             -> Session for the current request
 ```
 
+## 7.6. Current request-scoped dependency
+
 The current request-scoped dependency is:
 
-```
+```text
 get_database_session(request)
 ```
 
 It creates one SQLAlchemy `Session` for the current HTTP request and closes it when the request finishes.
 
+## 7.7. Current adapter dependencies
+
 The current adapter dependencies are:
 
-```
+```text
 get_patient_reader()
 get_observation_reader()
 get_condition_reader()
@@ -328,9 +391,11 @@ get_encounter_reader()
 get_audit_event_reader()
 ```
 
+## 7.8. Current use-case dependencies
+
 The current use-case dependencies are:
 
-```
+```text
 get_search_patients_use_case()
 get_patient_summary_use_case()
 get_list_observations_by_code_use_case()
@@ -338,7 +403,7 @@ get_export_patient_bundle_use_case()
 get_list_audit_events_use_case()
 ```
 
-Important boundary rule:
+## 7.9. Dependency boundary rule
 
 Routers must not instantiate SQLAlchemy sessions, SQLAlchemy adapters, or application use-cases manually.
 
@@ -346,50 +411,119 @@ Routers should receive already-wired use-cases through FastAPI dependencies.
 
 Domain and application layers remain independent from FastAPI and SQLAlchemy.
 
+## 7.10. Current status
+
 Current status:
 
 * request-scoped SQLAlchemy session dependency: implemented
 * SQLAlchemy read adapter dependencies: implemented
 * application use-case dependencies: implemented
+* API error response envelope: implemented
+* HTTP exception handler foundation: implemented
 * clinical routers: not implemented yet
 * audit routers: not implemented yet
-* API error response envelope: not implemented yet
+* authentication dependencies: not implemented yet
+* authorization dependencies: not implemented yet
 * clinical Pydantic request/response schemas: not implemented yet
 * audit Pydantic response schemas: not implemented yet
 
-Clinical and audit endpoints remain intentionally deferred until endpoint contracts, response schemas, and error mapping are designed.
+Clinical and audit endpoints remain intentionally deferred until endpoint contracts, response schemas, security, and error mapping are designed.
 
 ---
 
-## 8. Local development
+## 8. Security documentation
+
+## 8.1. Current security status
+
+Authentication and authorization are not implemented yet.
+
+The current `/health` endpoint is public.
+
+Future clinical and audit endpoints should not be treated as public by default.
+
+Phase 4 defines the MVP security foundation.
+
+## 8.2. Security documentation location
+
+Security behavior is documented separately in:
+
+```text
+docs/security/README.md
+```
+
+That document covers:
+
+* Bearer-token-based authentication
+* JWT requirements
+* current-principal semantics
+* roles
+* permissions
+* authorization flow
+* `401 Unauthorized`
+* `403 Forbidden`
+* public vs protected endpoints
+* audit actor derivation
+* security error behavior
+* security settings
+* MVP limitations
+* post-MVP backlog references
+
+## 8.3. Security ADR
+
+The MVP security model is defined by:
+
+```text
+docs/adr/0017-mvp-authentication-rbac-and-audit-security-model.md
+```
+
+## 8.4. Security and API error envelope
+
+Future authentication and authorization errors should use the standard API error response envelope.
+
+Expected mappings:
+
+```text
+Missing or invalid token -> 401 Unauthorized
+Missing permission       -> 403 Forbidden
+```
+
+---
+
+## 9. Local development
+
+## 9.1. Working directory
 
 Run all backend commands from:
 
-```
+```text
 apps/api
 ```
 
+## 9.2. Activate Pipenv environment
+
 Activate the Pipenv environment:
 
-```
+```bash
 pipenv shell
 ```
 
 Or run commands directly:
 
-```
+```bash
 pipenv run <command>
 ```
 
+## 9.3. Install dependencies
+
 Install dependencies:
 
-```
+```bash
 pipenv install
 ```
 
 Install dependencies exactly from the lockfile:
 
-```
+```bash
 pipenv sync --dev
 ```
 
@@ -397,57 +531,73 @@ Use `pipenv sync --dev` especially in reproducible environments such as CI, beca
 
 ---
 
-## 9. Running the API locally
+## 10. Running the API locally
+
+## 10.1. Source layout
 
 Because the backend uses a `src/` layout, the package lives under:
 
-```
+```text
 apps/api/src/fhir_gateway
 ```
 
+## 10.2. Start command
+
 Run the API from `apps/api` with:
 
-```
+```bash
 pipenv run uvicorn fhir_gateway.interfaces.http.main:app --reload --app-dir src
 ```
 
+## 10.3. Local URL
+
 The API starts at:
 
-```
+```text
 http://127.0.0.1:8000
 ```
 
+## 10.4. Stop command
+
 Stop the server with:
 
-```
+```text
 CTRL + C
 ```
 
 ---
 
-## 10. Interactive documentation
+## 11. Interactive documentation
+
+## 11.1. Swagger UI
 
 FastAPI exposes interactive API documentation automatically.
 
 Swagger UI:
 
-```
+```text
 http://127.0.0.1:8000/docs
 ```
 
+## 11.2. ReDoc
+
 ReDoc:
 
-```
+```text
 http://127.0.0.1:8000/redoc
 ```
 
+## 11.3. Current OpenAPI status
+
 At the current stage, these pages only expose `/health`.
+
+Future clinical and audit endpoints will appear once routers are implemented.
 
 ---
 
-## 11. Endpoint: Health check
+## 12. Endpoint: Health check
 
-### 11.1. `GET /health`
+## 12.1. `GET /health`
 
 Checks whether the API process is alive and responding.
 
@@ -462,73 +612,201 @@ It does not access:
 * clinical data
 * audit data
 
-### 11.2. Request
+## 12.2. Request
 
-```
+```http
 GET /health
 ```
 
-### 11.3. Successful response
+## 12.3. Successful response
 
 Status code:
 
-```
+```text
 200 OK
 ```
 
 Body:
 
-```
+```json
 {
   "status": "ok"
 }
 ```
 
-### 11.4. Browser example
+## 12.4. Browser example
 
 Open:
 
-```
+```text
 http://127.0.0.1:8000/health
 ```
 
 Expected response:
 
-```
+```json
 {
   "status": "ok"
 }
 ```
 
-### 11.5. PowerShell example
+## 12.5. PowerShell example
 
-```
+```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-### 11.6. curl example
+## 12.6. curl example
 
-```
+```bash
 curl http://127.0.0.1:8000/health
 ```
 
 ---
 
-## 12. Testing and quality gate
+## 13. Error handling
 
-### 12.1. Full test suite
+## 13.1. Standard API error response envelope
+
+The API defines a standard error response envelope:
+
+```json
+{
+  "error": {
+    "code": "string",
+    "message": "string",
+    "field": "string | null",
+    "resource": "string | null",
+    "identifier": "string | null"
+  }
+}
+```
+
+This envelope is defined in the HTTP/interface layer.
+
+The domain and application layers remain independent from FastAPI and HTTP response details.
+
+## 13.2. Error schema location
+
+The error response schema is located in:
+
+```text
+apps/api/src/fhir_gateway/interfaces/http/schemas/errors.py
+```
+
+## 13.3. Exception handler location
+
+HTTP exception handlers are located in:
+
+```text
+apps/api/src/fhir_gateway/interfaces/http/error_handlers.py
+```
+
+## 13.4. Current mappings
+
+Current mappings:
+
+```text
+DomainValidationError      -> 400 Bad Request
+ApplicationValidationError -> 400 Bad Request
+ApplicationNotFoundError   -> 404 Not Found
+Unexpected exception       -> 500 Internal Server Error
+```
+
+Future security mappings:
+
+```text
+Missing or invalid token -> 401 Unauthorized
+Missing permission       -> 403 Forbidden
+```
+
+## 13.5. Validation error example
+
+Status:
+
+```text
+400 Bad Request
+```
+
+Body:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "cannot be empty",
+    "field": "Code.code",
+    "resource": null,
+    "identifier": null
+  }
+}
+```
+
+## 13.6. Not-found error example
+
+Status:
+
+```text
+404 Not Found
+```
+
+Body:
+
+```json
+{
+  "error": {
+    "code": "not_found",
+    "message": "Patient not found: pat-001",
+    "field": null,
+    "resource": "Patient",
+    "identifier": "pat-001"
+  }
+}
+```
+
+## 13.7. Internal server error example
+
+Status:
+
+```text
+500 Internal Server Error
+```
+
+Body:
+
+```json
+{
+  "error": {
+    "code": "internal_server_error",
+    "message": "Internal server error.",
+    "field": null,
+    "resource": null,
+    "identifier": null
+  }
+}
+```
+
+Unexpected errors are logged internally.
+
+Internal implementation details must not be leaked to API clients.
+
+---
+
+## 14. Testing and quality gate
+
+## 14.1. Full test suite
 
 Run the full test suite from `apps/api`:
 
-```
+```bash
 pipenv run pytest
 ```
 
-### 12.2. Local API quality gate
+## 14.2. Local API quality gate
 
 Run the local API quality gate from `apps/api`:
 
-```
+```bash
 pipenv run ruff check src tests
 pipenv run pytest
 ```
@@ -540,6 +818,7 @@ The quality gate currently checks:
 * Ruff linting for `src` and `tests`
 * the full pytest suite
 * architecture boundary tests as part of pytest
+* HTTP error response envelope tests
 
 The quality gate does not yet run:
 
@@ -549,93 +828,93 @@ The quality gate does not yet run:
 * Alembic migrations against a real PostgreSQL database
 * deployment checks
 
-### 12.3. HTTP tests
+## 14.3. HTTP tests
 
 Run HTTP tests:
 
-```
+```bash
 pipenv run pytest tests/unit/interfaces/http
 ```
 
 Run HTTP dependency wiring tests:
 
-```
+```bash
 pipenv run pytest tests/unit/interfaces/http/dependencies
 ```
 
-### 12.4. Settings and logging tests
+## 14.4. Settings and logging tests
 
 Run settings tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/config/test_settings.py
 ```
 
 Run logging tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/test_logging.py
 ```
 
-### 12.5. Architecture boundary tests
+## 14.5. Architecture boundary tests
 
 Run architecture boundary tests:
 
-```
+```bash
 pipenv run pytest tests/unit/architecture
 ```
 
 These tests protect the project boundaries, especially the rule that domain and application layers must remain independent from FastAPI and SQLAlchemy.
 
-### 12.6. Persistence tests
+## 14.6. Persistence tests
 
 Run persistence tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
 ```
 
 Run ORM model tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
 ```
 
 Run Patient ORM model tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_patient_orm_models.py
 ```
 
 Run clinical resource ORM model tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_clinical_resource_orm_models.py
 ```
 
 Run AuditEvent ORM model tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_audit_event_orm_models.py
 ```
 
 Run ORM/domain mapper tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers
 ```
 
 Run SQLAlchemy adapter tests:
 
-```
+```bash
 pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters
 ```
 
-### 12.7. Alembic inspection commands
+## 14.7. Alembic inspection commands
 
 Useful Alembic inspection commands:
 
-```
+```bash
 pipenv run alembic history --verbose
 pipenv run alembic heads --verbose
 pipenv run alembic upgrade head --sql
@@ -647,49 +926,49 @@ Do not run database migrations against PostgreSQL until a local PostgreSQL workf
 
 ---
 
-## 13. Continuous integration
+## 15. Continuous integration
 
-### 13.1. Workflow file
+## 15.1. Workflow file
 
 The API package includes a GitHub Actions workflow:
 
-```
+```text
 .github/workflows/api-ci.yml
 ```
 
 The workflow is named:
 
-```
+```text
 API CI
 ```
 
-### 13.2. Purpose
+## 15.2. Purpose
 
 The workflow runs the backend quality gate automatically for API-related changes.
 
 Current workflow checks:
 
-```
+```bash
 pipenv run ruff check src tests
 pipenv run pytest
 ```
 
 The workflow runs from:
 
-```
+```text
 apps/api
 ```
 
 The workflow installs dependencies through Pipenv using the locked dependency set.
 
-### 13.3. Triggers
+## 15.3. Triggers
 
 The workflow is triggered for:
 
 * pull requests that modify `apps/api/**` or the workflow file itself
 * pushes to `main` that modify `apps/api/**` or the workflow file itself
 
-### 13.4. What happens if CI fails?
+## 15.4. What happens if CI fails?
 
 If GitHub Actions detects a Ruff error or test failure after a push:
 
@@ -705,7 +984,7 @@ If branch protection rules are configured later, GitHub can prevent merging Pull
 
 If direct pushes to `main` are restricted later, GitHub can enforce stricter rules before changes reach `main`.
 
-### 13.5. Current CI limitations
+## 15.5. Current CI limitations
 
 This CI baseline is intentionally minimal.
 
@@ -722,7 +1001,7 @@ Those checks can be added later when the project needs them.
 
 ---
 
-## 14. Current limitations
+## 16. Current limitations
 
 The API does not yet expose:
 
@@ -735,10 +1014,11 @@ The API does not yet expose:
 * authorization
 * persistence-backed clinical endpoints
 * persistence-backed audit endpoints
-* API error response envelope
 * clinical Pydantic request/response schemas
 * audit Pydantic response schemas
 * seed data
+
+The API now has a standard error response envelope, but authentication and authorization errors are not yet implemented because the security dependencies have not been introduced yet.
 
 These capabilities are intentionally deferred.
 
@@ -746,19 +1026,19 @@ The API already contains read-side wiring for the current application use-cases,
 
 ---
 
-## 15. Planned endpoints
+## 17. Planned endpoints
 
 The following endpoints are planned but not implemented yet.
 
-### 15.1. Patient search
+## 17.1. Patient search
 
-```
+```http
 GET /patients?search={text}
 ```
 
 Related use-case:
 
-```
+```text
 SearchPatientsUseCase
 ```
 
@@ -776,17 +1056,15 @@ Expected persistence behavior:
 * should search by patient id, patient name fields, and patient identifiers where supported by the adapter
 * should hide logically deleted patients by default using `patients.deleted_at IS NULL`
 
----
+## 17.2. Patient summary
 
-### 15.2. Patient summary
-
-```
+```http
 GET /patients/{patient_id}/summary
 ```
 
 Related use-case:
 
-```
+```text
 GetPatientSummaryUseCase
 ```
 
@@ -804,17 +1082,15 @@ Expected persistence behavior:
 * should include related Observations, Conditions, and Encounters
 * should hide logically deleted resources by default
 
----
+## 17.3. Observations by code
 
-### 15.3. Observations by code
-
-```
+```http
 GET /patients/{patient_id}/observations?system={system}&code={code}
 ```
 
 Related use-case:
 
-```
+```text
 ListObservationsByCodeUseCase
 ```
 
@@ -840,17 +1116,15 @@ Expected persistence behavior:
 * should join or resolve `observation_codes`
 * should hide logically deleted observations by default
 
----
+## 17.4. Patient bundle export
 
-### 15.4. Patient bundle export
-
-```
+```http
 GET /patients/{patient_id}/bundle
 ```
 
 Related use-case:
 
-```
+```text
 ExportPatientBundleUseCase
 ```
 
@@ -871,17 +1145,15 @@ Expected persistence behavior:
 * should export the patient bundle from persistence-backed data
 * should exclude logically deleted resources by default for ordinary clinical reads unless a later design explicitly says otherwise
 
----
+## 17.5. Audit events
 
-### 15.5. Audit events
-
-```
+```http
 GET /audit-events?limit={limit}
 ```
 
 Related use-case:
 
-```
+```text
 ListAuditEventsUseCase
 ```
 
@@ -903,7 +1175,9 @@ Advanced audit filtering and pagination are deferred.
 
 ---
 
-## 16. Logical deletion API behavior
+## 18. Logical deletion API behavior
+
+## 18.1. Current logical deletion status
 
 Logical deletion has been introduced at the persistence schema level.
 
@@ -914,6 +1188,8 @@ Affected tables:
 * `conditions`
 * `encounters`
 
+## 18.2. Current API behavior
+
 Current API behavior:
 
 * no endpoint exposes `deleted_at`
@@ -921,6 +1197,8 @@ Current API behavior:
 * no endpoint restores logically deleted resources
 * no endpoint includes deleted resources by explicit option
 * no clinical endpoint is currently exposed over persistence-backed data
+
+## 18.3. Current persistence adapter behavior
 
 Current persistence adapter behavior:
 
@@ -934,15 +1212,19 @@ The exact HTTP response behavior for logically deleted resources, such as `404 N
 
 ---
 
-## 17. Audit API behavior
+## 19. Audit API behavior
+
+## 19.1. Current audit persistence status
 
 AuditEvent persistence exists at the database schema level.
 
 Current table:
 
-```
+```text
 audit_events
 ```
+
+## 19.2. Current API behavior
 
 Current API behavior:
 
@@ -950,6 +1232,8 @@ Current API behavior:
 * no audit write pipeline exists yet
 * no current-agent provider exists yet
 * no authentication or authorization exists yet
+
+## 19.3. Current read-side wiring status
 
 Current read-side wiring status:
 
@@ -960,11 +1244,13 @@ Current read-side wiring status:
 
 Future audit listing should use:
 
-```
+```text
 ListAuditEventsUseCase
 ```
 
 and return audit events ordered from newest to oldest.
+
+## 19.4. Future audit actor rule
 
 Future audit creation must not allow arbitrary user-controlled request bodies to decide the `agent` value.
 
@@ -975,9 +1261,15 @@ The `agent` should come from trusted runtime context, such as:
 * background job identity
 * local/demo identity
 
+Security-specific audit actor behavior is documented in:
+
+```text
+docs/security/README.md
+```
+
 ---
 
-## 18. API design principles
+## 20. API design principles
 
 As the API evolves:
 
@@ -996,34 +1288,15 @@ As the API evolves:
 13. Do not expose technical persistence metadata unless explicitly designed.
 14. Do not let arbitrary request input define audit `agent`.
 15. Keep the local quality gate and CI workflow aligned.
+16. Use the standard API error response envelope for exposed HTTP errors.
+17. Keep authentication and authorization behavior centralized in HTTP dependencies.
+18. Keep detailed security behavior documented in `docs/security/README.md`.
 
 ---
 
-## 19. Error handling
+## 21. Security status
 
-A standard API error response envelope has not been defined yet.
-
-Future HTTP endpoints will need to map application errors such as:
-
-* `ApplicationValidationError`
-* `ApplicationNotFoundError`
-* `DomainValidationError`
-
-
-to HTTP responses such as:
-
-* `400 Bad Request`
-* `404 Not Found`
-
-Logical deletion may affect future not-found semantics.
-
-For ordinary clinical endpoints, a logically deleted resource may be treated as not found unless an explicit admin/audit endpoint says otherwise.
-
-This will be decided before exposing clinical use-cases through HTTP.
-
----
-
-## 20. Security status
+## 21.1. Current status
 
 Authentication and authorization are not implemented yet.
 
@@ -1031,7 +1304,25 @@ The current `/health` endpoint is public.
 
 Future clinical and audit endpoints should not be treated as public by default.
 
-Authentication, RBAC, and audit trail enforcement belong to later phases.
+Authentication, RBAC, and audit trail enforcement belong to Phase 4 security foundation work.
+
+## 21.2. Security documentation
+
+Security documentation is located in:
+
+```text
+docs/security/README.md
+```
+
+## 21.3. Security model ADR
+
+The MVP security model is defined in:
+
+```text
+docs/adr/0017-mvp-authentication-rbac-and-audit-security-model.md
+```
+
+## 21.4. Audit actor rule
 
 Audit event creation should eventually use trusted runtime context for `agent`.
 
@@ -1041,13 +1332,25 @@ Production database credentials must be provided through environment variables o
 
 ---
 
-## 21. Related documentation
+## 22. Related documentation
+
+## 22.1. Persistence documentation
 
 Persistence documentation:
 
-```
+```text
 docs/persistence/README.md
 ```
+
+## 22.2. Security documentation
+
+Security documentation:
+
+```text
+docs/security/README.md
+```
+
+## 22.3. Related ADRs
 
 Related ADRs:
 
@@ -1057,3 +1360,4 @@ Related ADRs:
 * ADR 0014: Database timestamp and audit metadata strategy
 * ADR 0015: AuditEvent persistence strategy
 * ADR 0016: Clinical resource logical deletion strategy
+* ADR 0017: MVP authentication, RBAC, and audit security model

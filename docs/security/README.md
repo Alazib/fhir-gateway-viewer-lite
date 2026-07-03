@@ -1,17 +1,43 @@
 # Security Documentation
 
+## Table of contents
+
+* [1. Purpose](#1-purpose)
+* [2. Current status](#2-current-status)
+* [3. Security pipeline](#3-security-pipeline)
+* [4. Authentication](#4-authentication)
+* [5. JWT requirements](#5-jwt-requirements)
+* [6. Token verification foundation](#6-token-verification-foundation)
+* [7. Current principal](#7-current-principal)
+* [8. Roles](#8-roles)
+* [9. Permissions and RBAC](#9-permissions-and-rbac)
+* [10. Authorization flow](#10-authorization-flow)
+* [11. Public vs protected endpoints](#11-public-vs-protected-endpoints)
+* [12. Demo token endpoint](#12-demo-token-endpoint)
+* [13. Audit actor derivation](#13-audit-actor-derivation)
+* [14. Security error behavior](#14-security-error-behavior)
+* [15. Settings](#15-settings)
+* [16. Testing strategy](#16-testing-strategy)
+* [17. MVP limitations](#17-mvp-limitations)
+* [18. Post-MVP backlog references](#18-post-mvp-backlog-references)
+* [19. Related ADRs](#19-related-adrs)
+* [20. Summary](#20-summary)
+
+---
+
 ## 1. Purpose
 
 This document explains the MVP security model for the `FHIR Gateway Viewer Lite` backend.
 
-It documents how the project handles, or plans to handle during Phase 4:
+It documents how the project handles, or plans to handle during Phase 4 and Phase 5:
 
 * authentication
-* JWT validation
+* JWT verification
 * current-principal extraction
 * role-based access control
 * permission checks
 * public vs protected endpoints
+* demo/local token issuing
 * audit actor derivation
 * security error behavior
 * security-related settings
@@ -36,30 +62,43 @@ docs/adr/0017-mvp-authentication-rbac-and-audit-security-model.md
 
 Current security status: **Phase 4 / Security foundation in progress**
 
-The following security-related work is already defined:
+The following security-related work is already defined or partially implemented:
 
 * MVP security model ADR
 * standard API error response envelope
 * error mapping foundation for validation, not-found, and internal errors
-* planned Bearer-token-based authentication model
-* planned JWT-based current-principal extraction
-* planned RBAC permission model
-* planned trusted audit actor derivation
+* Bearer-token-based authentication model
+* JWT-based current-principal extraction model
+* RBAC permission model
+* trusted audit actor derivation model
 
-The following security capabilities are not implemented yet:
+The following security capabilities are planned during Phase 4:
 
-* JWT verification
+* JWT settings
+* JWT token verification foundation
 * authentication HTTP dependency
 * current-principal dependency
 * RBAC authorization helpers
+* reusable security dependencies for future protected endpoints
+* audit actor derivation from trusted security context
+
+The following capabilities are planned for Phase 5 or later:
+
+* demo/local token issuing endpoint
 * protected clinical endpoints
 * protected audit endpoints
-* audit write-side pipeline
+* audit recording on selected patient access/export operations
+* frontend-facing demo authentication flow
+
+The following capabilities are not part of the MVP security foundation:
+
 * external OAuth/OIDC integration
 * JWKS validation
 * token revocation
 * session management
 * database-backed users
+* password login
+* user registration
 * patient-level consent/access control
 
 Current public endpoint:
@@ -74,16 +113,16 @@ Future clinical and audit endpoints should not be treated as public by default.
 
 ---
 
-## 3. Security model overview
+## 3. Security pipeline
 
-## 3.1. High-level flow
+## 3.1. High-level request flow
 
 The intended MVP request flow is:
 
 ```text
 HTTP request
     -> Authorization: Bearer <token>
-        -> JWT validation
+        -> JWT verification
             -> CurrentPrincipal
                 -> role-to-permission mapping
                     -> permission check
@@ -91,22 +130,63 @@ HTTP request
                             -> audit actor derived from principal
 ```
 
-## 3.2. Main concepts
+## 3.2. Token-to-authorization pipeline
 
-The main concepts are:
+The internal security pipeline should be understood as:
 
-| Concept          | Meaning                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| Bearer token     | Credential sent by the client in the `Authorization` header    |
-| JWT              | Signed token containing trusted claims after validation        |
-| CurrentPrincipal | Trusted runtime identity derived from a validated token        |
-| Role             | Coarse-grained user category, such as `clinician` or `auditor` |
-| Permission       | Fine-grained operation capability, such as `patient:read`      |
-| Audit actor      | Trusted actor written to audit records                         |
+```text
+Raw JWT
+    -> VerifiedJwtClaims
+        -> CurrentPrincipal
+            -> Permissions/RBAC
+```
 
-## 3.3. Boundary rule
+Each step has a different responsibility.
+
+```text
+JwtTokenVerifier:
+    Checks token cryptography and technical JWT claims.
+
+VerifiedJwtClaims:
+    Represents JWT claims after successful validation.
+
+CurrentPrincipal:
+    Represents the trusted actor for the current request.
+
+RBAC:
+    Translates roles into permissions and decides access.
+```
+
+This separation keeps the system understandable and testable.
+
+The API must not jump directly from arbitrary token text to authorization decisions.
+
+The token must first be verified.
+
+The verified claims must then be translated into a current principal.
+
+The current principal is then used by authorization helpers.
+
+## 3.3. Main concepts
+
+| Concept             | Meaning                                                                      |
+| ------------------- | ---------------------------------------------------------------------------- |
+| Bearer token        | Credential sent by the client in the `Authorization` header                  |
+| Raw JWT             | Token string received from the client; not trusted yet                       |
+| Verified JWT claims | Claims extracted after signature, issuer, audience and expiration validation |
+| CurrentPrincipal    | Trusted runtime identity derived from verified claims                        |
+| Role                | Coarse-grained user category, such as `clinician` or `auditor`               |
+| Permission          | Fine-grained operation capability, such as `patient:read`                    |
+| RBAC                | Role-based access control; maps roles to permissions                         |
+| Audit actor         | Trusted actor written to audit records                                       |
+
+## 3.4. Boundary rule
 
 Security translation to HTTP belongs to the HTTP/interface layer.
+
+Token verification belongs to infrastructure/security because it depends on a JWT library.
+
+Authorization decisions should be testable without a real HTTP server.
 
 Domain and application layers must remain independent from FastAPI.
 
@@ -150,11 +230,11 @@ The API must not trust a token only because it contains fields such as:
 }
 ```
 
-The token must first pass validation.
+The token must first pass verification.
 
 ## 4.3. Authentication result
 
-A successful authentication process produces a trusted `CurrentPrincipal`.
+A successful authentication process eventually produces a trusted `CurrentPrincipal`.
 
 An unsuccessful authentication process returns:
 
@@ -216,9 +296,104 @@ That is intentionally deferred to post-MVP backlog work.
 
 ---
 
-## 6. Current principal
+## 6. Token verification foundation
 
-## 6.1. Definition
+## 6.1. Responsibility
+
+The token verifier is responsible for answering:
+
+```text
+Is this token authentic, valid and usable?
+```
+
+The verifier does not:
+
+* perform login
+* create a user session
+* check endpoint permissions
+* know which endpoint is being accessed
+* return HTTP responses
+* raise FastAPI exceptions
+* create audit events
+
+It only verifies the token and returns trusted claims.
+
+## 6.2. Expected verifier input and output
+
+Input:
+
+```text
+raw JWT string
+```
+
+Output on success:
+
+```text
+VerifiedJwtClaims
+```
+
+Output on failure:
+
+```text
+project-owned token verification error
+```
+
+Conceptual example:
+
+```text
+JwtTokenVerifier.verify(token)
+    -> validates signature
+    -> validates issuer
+    -> validates audience
+    -> validates expiration
+    -> validates required claims
+    -> validates roles shape
+    -> returns VerifiedJwtClaims
+```
+
+## 6.3. VerifiedJwtClaims
+
+`VerifiedJwtClaims` represents JWT claims after successful verification.
+
+Conceptual fields:
+
+```text
+subject
+issuer
+audience
+issued_at
+expires_at
+roles
+name
+email
+```
+
+Example:
+
+```text
+VerifiedJwtClaims(
+    subject="clinician-demo-001",
+    issuer="fhir-gateway-local",
+    audience="fhir-gateway-api",
+    issued_at=123456,
+    expires_at=123999,
+    roles=("clinician",),
+    name="Demo Clinician",
+    email=None,
+)
+```
+
+This object is intentionally not the same as `CurrentPrincipal`.
+
+It still contains JWT-oriented technical information such as issuer, audience, issued-at and expiration.
+
+The next layer translates verified claims into the runtime actor model.
+
+---
+
+## 7. Current principal
+
+## 7.1. Definition
 
 `CurrentPrincipal` is the trusted runtime identity of the caller after successful authentication.
 
@@ -240,7 +415,33 @@ CurrentPrincipal(
 )
 ```
 
-## 6.2. Principal vs Patient
+## 7.2. VerifiedJwtClaims vs CurrentPrincipal
+
+`VerifiedJwtClaims` answers:
+
+```text
+What did the verified JWT contain?
+```
+
+`CurrentPrincipal` answers:
+
+```text
+Who is the trusted actor for this request?
+```
+
+Example transformation:
+
+```text
+VerifiedJwtClaims.subject -> CurrentPrincipal.subject
+VerifiedJwtClaims.name    -> CurrentPrincipal.display_name
+VerifiedJwtClaims.roles   -> CurrentPrincipal.roles
+```
+
+The application should not need to know about issuer, audience or JWT expiration after the principal has been established.
+
+Those are token verification concerns.
+
+## 7.3. Principal vs Patient
 
 A principal is not a patient.
 
@@ -259,7 +460,7 @@ The clinician may read the patient's data if authorization allows it.
 
 The two concepts must remain separate.
 
-## 6.3. Principal vs database user
+## 7.4. Principal vs database user
 
 The MVP does not introduce database-backed users.
 
@@ -269,9 +470,9 @@ Database-backed users, user registration, password login, and user lifecycle man
 
 ---
 
-## 7. Roles
+## 8. Roles
 
-## 7.1. Role list
+## 8.1. Role list
 
 The MVP defines these initial roles:
 
@@ -281,7 +482,7 @@ auditor
 admin
 ```
 
-## 7.2. `clinician`
+## 8.2. `clinician`
 
 A `clinician` represents a clinical user allowed to read ordinary clinical data in the MVP.
 
@@ -295,7 +496,7 @@ encounter:read
 bundle:export
 ```
 
-## 7.3. `auditor`
+## 8.3. `auditor`
 
 An `auditor` represents a user allowed to inspect audit events.
 
@@ -307,7 +508,7 @@ audit:read
 
 An auditor does not automatically receive clinical read permissions.
 
-## 7.4. `admin`
+## 8.4. `admin`
 
 An `admin` represents a broad MVP administrator.
 
@@ -328,9 +529,9 @@ It does not represent unrestricted production superuser behavior.
 
 ---
 
-## 8. Permissions
+## 9. Permissions and RBAC
 
-## 8.1. Permission list
+## 9.1. Permission list
 
 Initial MVP permissions:
 
@@ -343,7 +544,7 @@ bundle:export
 audit:read
 ```
 
-## 8.2. Role-to-permission mapping
+## 9.2. Role-to-permission mapping
 
 Initial mapping:
 
@@ -353,7 +554,7 @@ Initial mapping:
 | `auditor`   | `audit:read`                                                                                          |
 | `admin`     | `patient:read`, `observation:read`, `condition:read`, `encounter:read`, `bundle:export`, `audit:read` |
 
-## 8.3. Permission checks
+## 9.3. Permission checks
 
 Endpoints should require permissions, not raw roles.
 
@@ -383,9 +584,9 @@ Instead, it should rely on centralized authorization helpers.
 
 ---
 
-## 9. Authorization flow
+## 10. Authorization flow
 
-## 9.1. Authentication vs authorization
+## 10.1. Authentication vs authorization
 
 Authentication answers:
 
@@ -399,7 +600,7 @@ Authorization answers:
 Are you allowed to do this?
 ```
 
-## 9.2. `401 Unauthorized`
+## 10.2. `401 Unauthorized`
 
 Use `401 Unauthorized` when the API cannot establish a valid identity.
 
@@ -419,7 +620,7 @@ Meaning:
 The caller has not provided valid credentials.
 ```
 
-## 9.3. `403 Forbidden`
+## 10.3. `403 Forbidden`
 
 Use `403 Forbidden` when the API knows who the caller is but the caller lacks permission.
 
@@ -447,7 +648,7 @@ then the API should return:
 403 Forbidden
 ```
 
-## 9.4. Simple rule
+## 10.4. Simple rule
 
 ```text
 401 = no valid identity
@@ -456,9 +657,9 @@ then the API should return:
 
 ---
 
-## 10. Public vs protected endpoints
+## 11. Public vs protected endpoints
 
-## 10.1. Public endpoints
+## 11.1. Public endpoints
 
 Current public endpoint:
 
@@ -470,7 +671,7 @@ The health endpoint is technical.
 
 It does not expose clinical data, audit data, or application use-cases.
 
-## 10.2. Protected clinical endpoints
+## 11.2. Protected clinical endpoints
 
 Future clinical endpoints should require authentication and authorization by default.
 
@@ -485,7 +686,7 @@ GET /patients/{patient_id}/bundle
 
 These endpoints should not be public by default.
 
-## 10.3. Protected audit endpoints
+## 11.3. Protected audit endpoints
 
 Future audit endpoints should require authentication and authorization.
 
@@ -503,9 +704,72 @@ audit:read
 
 ---
 
-## 11. Audit actor derivation
+## 12. Demo token endpoint
 
-## 11.1. Trusted actor source
+## 12.1. Purpose
+
+A local/demo token issuing endpoint is planned for Phase 5.
+
+It allows the UI and integration tests to obtain a Bearer JWT without implementing:
+
+* database-backed users
+* password login
+* user registration
+* sessions
+* refresh tokens
+* external OAuth/OIDC
+* a production identity provider
+
+Intended endpoint:
+
+```text
+POST /auth/demo-token
+```
+
+Intended flow:
+
+```text
+UI
+    -> POST /auth/demo-token
+        -> receives demo JWT
+            -> calls protected endpoints with Authorization: Bearer <token>
+```
+
+## 12.2. Production boundary
+
+The demo token endpoint must be limited to local/test/demo usage.
+
+It must be disabled or rejected in production.
+
+This endpoint is an MVP convenience, not production authentication.
+
+## 12.3. Relationship to Phase 4
+
+Phase 4 builds the security foundation:
+
+```text
+settings
+token verification
+current principal
+RBAC
+audit actor derivation
+```
+
+Phase 5 can use that foundation to expose a demo token endpoint and protected clinical endpoints.
+
+The demo token endpoint is therefore not part of Sub-issue D.
+
+Sub-issue D verifies tokens.
+
+The demo token endpoint issues tokens.
+
+Those are related but separate responsibilities.
+
+---
+
+## 13. Audit actor derivation
+
+## 13.1. Trusted actor source
 
 Future audit event creation must derive the audit actor from trusted runtime context.
 
@@ -522,7 +786,7 @@ CurrentPrincipal.subject = "clinician-001"
 AuditEvent.agent = "clinician-001"
 ```
 
-## 11.2. Request body must not define audit actor
+## 13.2. Request body must not define audit actor
 
 Request bodies must not be allowed to define the audit actor.
 
@@ -541,11 +805,12 @@ Correct model:
 
 ```text
 validated token
-    -> CurrentPrincipal
-        -> AuditEvent.agent
+    -> VerifiedJwtClaims
+        -> CurrentPrincipal
+            -> AuditEvent.agent
 ```
 
-## 11.3. Future actor sources
+## 13.3. Future actor sources
 
 Future non-human actors may include:
 
@@ -558,9 +823,9 @@ Those must still be trusted runtime identities, not arbitrary request body value
 
 ---
 
-## 12. Security error behavior
+## 14. Security error behavior
 
-## 12.1. Standard API error envelope
+## 14.1. Standard API error envelope
 
 Security errors must use the standard API error response envelope:
 
@@ -578,7 +843,7 @@ Security errors must use the standard API error response envelope:
 
 The API error envelope is defined in the HTTP/interface layer.
 
-## 12.2. Authentication error example
+## 14.2. Authentication error example
 
 Status:
 
@@ -600,7 +865,7 @@ Body:
 }
 ```
 
-## 12.3. Authorization error example
+## 14.3. Authorization error example
 
 Status:
 
@@ -622,7 +887,7 @@ Body:
 }
 ```
 
-## 12.4. Application and domain error relationship
+## 14.4. Application and domain error relationship
 
 The same API error envelope is also used for application/domain errors exposed through HTTP.
 
@@ -637,9 +902,9 @@ Unexpected exception       -> 500 Internal Server Error
 
 ---
 
-## 13. Settings
+## 15. Settings
 
-## 13.1. Planned security settings
+## 15.1. Planned security settings
 
 Planned Phase 4 security settings:
 
@@ -650,9 +915,16 @@ Planned Phase 4 security settings:
 | `auth_jwt_audience`  | `FHIR_GATEWAY_AUTH_JWT_AUDIENCE`  | Expected token audience      |
 | `auth_jwt_algorithm` | `FHIR_GATEWAY_AUTH_JWT_ALGORITHM` | Expected JWT algorithm       |
 
-Exact names may be adjusted during implementation if needed.
+Recommended defaults:
 
-## 13.2. Secret handling rule
+```text
+auth_jwt_secret    = None
+auth_jwt_issuer    = "fhir-gateway-local"
+auth_jwt_audience  = "fhir-gateway-api"
+auth_jwt_algorithm = "HS256"
+```
+
+## 15.2. Secret handling rule
 
 Secrets must not be committed to the repository.
 
@@ -660,27 +932,48 @@ The local/demo signing secret should be provided through environment-backed sett
 
 Production secrets should eventually come from a proper secrets management strategy.
 
-## 13.3. Current status
+## 15.3. Current status
 
-These security settings are planned for Phase 4.
+These security settings are planned for Sub-issue D.
 
-They are not all implemented yet.
+After implementation, this section should be updated from planned behavior to implemented behavior.
 
 ---
 
-## 14. Testing strategy
+## 16. Testing strategy
 
-## 14.1. Authentication tests
+## 16.1. Token verification tests
 
-Future authentication tests should cover:
+Token verification tests should cover:
 
+* valid token
 * missing token
-* malformed token
+* blank token
+* missing configured secret
 * invalid signature
 * expired token
 * wrong issuer
 * wrong audience
-* missing required claims
+* missing required claim
+* invalid `roles` shape
+* empty roles
+* optional `name` and `email`
+
+Expected behavior:
+
+```text
+valid token   -> VerifiedJwtClaims
+invalid token -> project-owned token verification error
+```
+
+## 16.2. Authentication tests
+
+Authentication dependency tests should cover:
+
+* missing `Authorization` header
+* malformed `Authorization` header
+* unsupported scheme
+* invalid token
 * valid token
 
 Expected behavior:
@@ -690,9 +983,9 @@ missing/invalid token -> 401 unauthorized
 valid token           -> CurrentPrincipal
 ```
 
-## 14.2. Authorization tests
+## 16.3. Authorization tests
 
-Future authorization tests should cover:
+Authorization tests should cover:
 
 * principal has required permission
 * principal lacks required permission
@@ -707,15 +1000,15 @@ missing permission -> 403 forbidden
 allowed permission -> request continues
 ```
 
-## 14.3. Audit actor tests
+## 16.4. Audit actor tests
 
-Future audit actor tests should cover:
+Audit actor tests should cover:
 
 * audit actor comes from `CurrentPrincipal.subject`
 * request body cannot override audit actor
 * audit actor derivation is stable and explicit
 
-## 14.4. Error envelope tests
+## 16.5. Error envelope tests
 
 Security errors should reuse the standard API error envelope.
 
@@ -728,7 +1021,7 @@ Expected tests:
 
 ---
 
-## 15. MVP limitations
+## 17. MVP limitations
 
 The MVP security model deliberately does not implement:
 
@@ -747,7 +1040,7 @@ The MVP security model deliberately does not implement:
 * break-glass access
 * production-grade audit immutability
 * real patient data
-* frontend authentication flow
+* production frontend authentication flow
 
 These limitations are intentional.
 
@@ -755,7 +1048,7 @@ The MVP goal is to create a clean, testable, extensible security foundation with
 
 ---
 
-## 16. Post-MVP backlog references
+## 18. Post-MVP backlog references
 
 Deferred security hardening and expansion items include:
 
@@ -785,7 +1078,7 @@ BACKLOG / FUTURE-AI / AI-READY / Add security-aware audit context for future AI-
 
 ---
 
-## 17. Related ADRs
+## 19. Related ADRs
 
 Security model:
 
@@ -813,16 +1106,16 @@ docs/adr/0013-centralized-runtime-configuration.md
 
 ---
 
-## 18. Summary
+## 20. Summary
 
 The MVP security model is intentionally simple:
 
 ```text
-Bearer token
-    -> validated JWT
+Raw JWT
+    -> VerifiedJwtClaims
         -> CurrentPrincipal
             -> roles
-                -> permissions
+                -> permissions/RBAC
                     -> protected endpoint
                         -> trusted audit actor
 ```

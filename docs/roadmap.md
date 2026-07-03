@@ -294,28 +294,74 @@ Scope:
 
 **Objective:** Deliver minimal clinical value through stable API endpoints.
 
-Scope:
+Phase 5 exposes the first protected clinical and audit HTTP endpoints, using the security foundation introduced in Phase 4.
 
+---
+
+### Scope
+
+* Local/demo token issuing endpoint for MVP and UI simulation
 * Patient search endpoint
 * Patient summary endpoint
 * Observation listing by code endpoint
 * FHIR-like Bundle export endpoint
 * Audit listing endpoint
 
-**Definition of Done**
+The demo token endpoint is intended only for local, test, or demo environments. It allows the UI and integration tests to obtain a Bearer JWT without implementing database-backed users, password login, external OAuth/OIDC, or a full authentication provider.
 
+---
+
+### Example intended flow
+
+```text
+UI
+  -> POST /auth/demo-token
+  -> receives demo JWT
+  -> calls protected clinical endpoints with Authorization: Bearer <token>
+```
+
+This endpoint must not be treated as production authentication.
+
+---
+
+### Definition of Done
+
+* Demo token endpoint exists for local/test/demo usage
+* Demo token endpoint is disabled or rejected in production
+* Demo token endpoint can issue tokens for the supported MVP roles
+* Protected endpoints require Bearer-token-based authentication
+* Patient search endpoint exists
+* Patient summary endpoint exists
+* Observation listing by code endpoint exists
+* FHIR-like Bundle export endpoint exists
+* Audit listing endpoint exists
 * OpenAPI examples exist for the main endpoints
 * Integration tests cover the main clinical and audit endpoints
+* Integration tests can authenticate using demo-issued tokens or equivalent test fixtures
 * Application use-cases are wired through concrete adapters
 * Audit events are recorded on patient access and export operations
 * Endpoint contracts stay structured and predictable
 
-**AI-readiness notes**
+---
+
+### Security notes
+
+* The demo token endpoint is an MVP/demo convenience, not a production identity system.
+* It must not introduce user registration, password login, refresh tokens, sessions, or database-backed users.
+* Issued demo tokens must still follow the Phase 4 JWT claim contract.
+* Clinical and audit endpoints must consume tokens through the Phase 4 authentication and authorization flow.
+* Audit actors must be derived from the trusted current principal, not from request bodies.
+
+---
+
+### AI-readiness notes
 
 * Endpoint outputs should stay strongly structured and predictable
 * Patient summary and export flows should be designed so they can later serve as grounding sources for AI features
 * Avoid endpoint contracts that mix presentation-only text with core structured evidence in ways that would make later grounding harder
 * Preserve resource identifiers, dates, codes, quantities, and references in outputs that may later support AI grounding
+
+
 
 ---
 

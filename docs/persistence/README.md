@@ -1,216 +1,259 @@
 # FHIR Mini-Gateway Persistence Documentation
 
-## Status
+## Table of contents
 
-Current persistence status: **Phase 3 / Backend foundation**
-
-The backend currently includes:
-
-- SQLAlchemy ORM
-- Alembic
-- Psycopg 3
-- centralized `database_url` setting
-- SQLAlchemy declarative `Base`
-- database engine/session factory helpers
-- Alembic configuration
-- reusable SQLAlchemy `TimestampMixin`
-- reusable SQLAlchemy `LogicalDeletionMixin`
-- Patient ORM schema
-- Patient identifier ORM schema
-- Observation code catalog ORM schema
-- Condition code catalog ORM schema
-- Observation ORM schema
-- Condition ORM schema
-- Encounter ORM schema
-- logical deletion metadata for top-level clinical resources
-- AuditEvent ORM schema
-- ORM/domain mapper package
-- Patient ORM/domain mapper
-- Observation ORM/domain mapper
-- Condition ORM/domain mapper
-- Encounter ORM/domain mapper
-- AuditEvent ORM/domain mapper
-- ORM/domain mapper tests
-- SQLAlchemy read adapter package
-- Patient SQLAlchemy read adapter
-- Observation SQLAlchemy read adapter
-- Condition SQLAlchemy read adapter
-- Encounter SQLAlchemy read adapter
-- AuditEvent SQLAlchemy read adapter
-- SQLAlchemy read adapter tests
-- manual Patient migration
-- manual clinical resource tables migration
-- manual logical deletion metadata migration
-- manual AuditEvent table migration
-- ORM metadata tests
-- migration SQL rendering validation
-- architecture boundary tests preventing SQLAlchemy imports in domain/application
-- constrained domain `Reference.resource_type`
-- ADR 0014 database timestamp and audit metadata strategy
-- ADR 0015 AuditEvent persistence strategy
-- ADR 0016 clinical resource logical deletion strategy
-
-Current clinical and audit persistence schemas:
-
-| Resource / table group | Status |
-|---|---|
-| Patient | Implemented |
-| Patient identifiers | Implemented |
-| Observation codes | Implemented |
-| Condition codes | Implemented |
-| Observation | Implemented |
-| Condition | Implemented |
-| Encounter | Implemented |
-| Logical deletion metadata | Implemented |
-| AuditEvent | Implemented |
-
-SQLAlchemy read adapters have been implemented for the current Phase 3 application read ports.
-
-ORM/domain mappers have been implemented for the current Phase 3 read-side persistence resources.
-
-No HTTP endpoint is currently backed by database persistence.
+* [1. Status](#1-status)
+* [2. Purpose](#2-purpose)
+* [3. Architectural boundaries](#3-architectural-boundaries)
+* [4. Persistence structure](#4-persistence-structure)
+* [5. Runtime database configuration](#5-runtime-database-configuration)
+* [6. Engine, session factory and HTTP database dependency](#6-engine-session-factory-and-http-database-dependency)
+* [7. SQLAlchemy read adapters](#7-sqlalchemy-read-adapters)
+* [8. ORM/domain mapper strategy](#8-ormdomain-mapper-strategy)
+* [9. Current database schema overview](#9-current-database-schema-overview)
+* [10. Timestamp strategy](#10-timestamp-strategy)
+* [11. Logical deletion strategy](#11-logical-deletion-strategy)
+* [12. AuditEvent persistence strategy](#12-auditevent-persistence-strategy)
+* [13. Technical timestamps vs clinical dates](#13-technical-timestamps-vs-clinical-dates)
+* [14. Code catalog design](#14-code-catalog-design)
+* [15. Reference persistence design](#15-reference-persistence-design)
+* [16. Index strategy](#16-index-strategy)
+* [17. Alembic migrations](#17-alembic-migrations)
+* [18. Testing](#18-testing)
+* [19. Current limitations](#19-current-limitations)
+* [20. Planned persistence work](#20-planned-persistence-work)
+* [21. Persistence design principles](#21-persistence-design-principles)
+* [22. Related ADRs](#22-related-adrs)
+* [23. Related backlog items](#23-related-backlog-items)
 
 ---
 
-## Purpose
+## 1. Status
+
+Current persistence status: **Phase 3 / Backend foundation implemented**
+
+Current API/security status: **Phase 4 / Security foundation in progress**
+
+The backend currently includes:
+
+* SQLAlchemy ORM
+* Alembic
+* Psycopg 3
+* centralized `database_url` setting
+* SQLAlchemy declarative `Base`
+* database engine/session factory helpers
+* request-scoped HTTP database session dependency
+* application use-case dependency wiring through SQLAlchemy read adapters
+* Alembic configuration
+* reusable SQLAlchemy `TimestampMixin`
+* reusable SQLAlchemy `LogicalDeletionMixin`
+* Patient ORM schema
+* Patient identifier ORM schema
+* Observation code catalog ORM schema
+* Condition code catalog ORM schema
+* Observation ORM schema
+* Condition ORM schema
+* Encounter ORM schema
+* logical deletion metadata for top-level clinical resources
+* AuditEvent ORM schema
+* ORM/domain mapper package
+* Patient ORM/domain mapper
+* Observation ORM/domain mapper
+* Condition ORM/domain mapper
+* Encounter ORM/domain mapper
+* AuditEvent ORM/domain mapper
+* ORM/domain mapper tests
+* SQLAlchemy read adapter package
+* Patient SQLAlchemy read adapter
+* Observation SQLAlchemy read adapter
+* Condition SQLAlchemy read adapter
+* Encounter SQLAlchemy read adapter
+* AuditEvent SQLAlchemy read adapter
+* SQLAlchemy read adapter tests
+* manual Patient migration
+* manual clinical resource tables migration
+* manual logical deletion metadata migration
+* manual AuditEvent table migration
+* ORM metadata tests
+* migration SQL rendering validation
+* architecture boundary tests preventing SQLAlchemy imports in domain/application
+* constrained domain `Reference.resource_type`
+* ADR 0014 database timestamp and audit metadata strategy
+* ADR 0015 AuditEvent persistence strategy
+* ADR 0016 clinical resource logical deletion strategy
+
+Current clinical and audit persistence schemas:
+
+| Resource / table group    | Status      |
+| ------------------------- | ----------- |
+| Patient                   | Implemented |
+| Patient identifiers       | Implemented |
+| Observation codes         | Implemented |
+| Condition codes           | Implemented |
+| Observation               | Implemented |
+| Condition                 | Implemented |
+| Encounter                 | Implemented |
+| Logical deletion metadata | Implemented |
+| AuditEvent                | Implemented |
+
+SQLAlchemy read adapters have been implemented for the current application read ports.
+
+ORM/domain mappers have been implemented for the current read-side persistence resources.
+
+HTTP dependency wiring for database sessions, adapters and current read-side use-cases exists, but broad persistence-backed clinical HTTP endpoints are not exposed yet.
+
+---
+
+## 2. Purpose
 
 This document describes the persistence layer of the `FHIR Gateway Viewer Lite` backend.
 
 It covers:
 
-- persistence architecture
-- SQLAlchemy structure
-- Alembic migrations
-- current ORM models
-- ORM/domain mapper strategy
-- SQLAlchemy read adapter strategy
-- current database schema
-- timestamp strategy
-- logical deletion strategy
-- audit event persistence strategy
-- persistence design principles
-- current limitations
-- future persistence work
+* persistence architecture
+* SQLAlchemy structure
+* database engine/session configuration
+* HTTP database dependency wiring
+* Alembic migrations
+* current ORM models
+* ORM/domain mapper strategy
+* SQLAlchemy read adapter strategy
+* current database schema
+* timestamp strategy
+* logical deletion strategy
+* audit event persistence strategy
+* persistence design principles
+* current limitations
+* future persistence work
 
 API behavior and HTTP endpoint documentation live in:
 
-    docs/api/README.md
+```text
+docs/api/README.md
+```
+
+Security behavior lives in:
+
+```text
+docs/security/README.md
+```
 
 ---
 
-## Architectural boundaries
+## 3. Architectural boundaries
 
 Persistence belongs to the infrastructure layer.
 
 The domain layer must not import:
 
-- SQLAlchemy
-- Alembic
-- Psycopg
-- ORM models
-- database sessions
-- database engine helpers
+* SQLAlchemy
+* Alembic
+* Psycopg
+* ORM models
+* database sessions
+* database engine helpers
 
 The application layer must not import:
 
-- SQLAlchemy
-- Alembic
-- Psycopg
-- ORM models
-- database sessions
-- database engine helpers
+* SQLAlchemy
+* Alembic
+* Psycopg
+* ORM models
+* database sessions
+* database engine helpers
 
 The intended dependency direction is:
 
-    domain
-        ↑
-    application
-        ↑
-    infrastructure
+```text
+domain
+    ↑
+application
+    ↑
+infrastructure
+```
 
 Infrastructure may depend on domain and application.
 
 Domain and application must not depend on infrastructure.
 
+HTTP dependencies may compose infrastructure adapters and application use-cases at runtime, but that composition must stay at the interface boundary.
+
 ---
 
-## Persistence structure
+## 4. Persistence structure
 
 Current structure:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/
+```text
+apps/api/src/fhir_gateway/infrastructure/persistence/
+├── __init__.py
+└── sqlalchemy/
     ├── __init__.py
-    └── sqlalchemy/
+    ├── base.py
+    ├── database.py
+    ├── mixins.py
+    ├── adapters/
+    │   ├── __init__.py
+    │   ├── audit_event_reader.py
+    │   ├── condition_reader.py
+    │   ├── encounter_reader.py
+    │   ├── observation_reader.py
+    │   └── patient_reader.py
+    ├── mappers/
+    │   ├── __init__.py
+    │   ├── audit_event.py
+    │   ├── condition.py
+    │   ├── encounter.py
+    │   ├── observation.py
+    │   └── patient.py
+    └── models/
         ├── __init__.py
-        ├── base.py
-        ├── database.py
-        ├── mixins.py
-        ├── adapters/
-        │   ├── __init__.py
-        │   ├── audit_event_reader.py
-        │   ├── condition_reader.py
-        │   ├── encounter_reader.py
-        │   ├── observation_reader.py
-        │   └── patient_reader.py
-        ├── mappers/
-        │   ├── __init__.py
-        │   ├── audit_event.py
-        │   ├── condition.py
-        │   ├── encounter.py
-        │   ├── observation.py
-        │   └── patient.py
-        └── models/
-            ├── __init__.py
-            ├── audit_event.py
-            ├── condition.py
-            ├── encounter.py
-            ├── observation.py
-            └── patient.py
+        ├── audit_event.py
+        ├── condition.py
+        ├── encounter.py
+        ├── observation.py
+        └── patient.py
+```
 
 Responsibilities:
 
-- `base.py`: defines the SQLAlchemy declarative `Base`.
-- `database.py`: provides helpers to create SQLAlchemy engines and session factories.
-- `mixins.py`: contains reusable SQLAlchemy persistence mixins.
-- `adapters/`: contains SQLAlchemy read adapters implementing current application persistence ports.
-- `adapters/patient_reader.py`: implements Patient read/search ports using SQLAlchemy.
-- `adapters/observation_reader.py`: implements Observation read ports using SQLAlchemy.
-- `adapters/condition_reader.py`: implements Condition read ports using SQLAlchemy.
-- `adapters/encounter_reader.py`: implements Encounter read ports using SQLAlchemy.
-- `adapters/audit_event_reader.py`: implements AuditEvent read ports using SQLAlchemy.
-- `adapters/__init__.py`: exposes the current public SQLAlchemy read adapter classes.
-- `models/`: contains SQLAlchemy ORM models.
-- `models/audit_event.py`: defines AuditEvent persistence records.
-- `models/patient.py`: defines Patient and Patient identifier persistence records.
-- `models/observation.py`: defines Observation code catalog and Observation records.
-- `models/condition.py`: defines Condition code catalog and Condition records.
-- `models/encounter.py`: defines Encounter records.
-- `models/__init__.py`: imports and exports all current ORM records so they are registered in `Base.metadata`.
-- `mappers/`: contains SQLAlchemy ORM-to-domain mapper functions.
-- `mappers/patient.py`: maps Patient ORM records to the domain `Patient`.
-- `mappers/observation.py`: maps Observation ORM records and Observation code catalog records to the domain `Observation`.
-- `mappers/condition.py`: maps Condition ORM records and Condition code catalog records to the domain `Condition`.
-- `mappers/encounter.py`: maps Encounter ORM records to the domain `Encounter`.
-- `mappers/audit_event.py`: maps AuditEvent ORM records to the domain `AuditEvent`.
-- `mappers/__init__.py`: exposes the current public mapper functions for infrastructure use.
+* `base.py`: defines the SQLAlchemy declarative `Base`.
+* `database.py`: provides helpers to create SQLAlchemy engines and session factories.
+* `mixins.py`: contains reusable SQLAlchemy persistence mixins.
+* `adapters/`: contains SQLAlchemy read adapters implementing application persistence ports.
+* `models/`: contains SQLAlchemy ORM models.
+* `mappers/`: contains SQLAlchemy ORM-to-domain mapper functions.
+
+HTTP composition lives outside the persistence package:
+
+```text
+apps/api/src/fhir_gateway/interfaces/http/dependencies/
+├── adapters.py
+├── database.py
+└── use_cases.py
+```
 
 ---
 
-## Runtime database configuration
+## 5. Runtime database configuration
 
 The database URL is defined in:
 
-    apps/api/src/fhir_gateway/infrastructure/config/settings.py
+```text
+apps/api/src/fhir_gateway/infrastructure/config/settings.py
+```
 
 Current setting:
 
-| Setting | Environment variable | Default |
-|---|---|---|
+| Setting        | Environment variable        | Default                                                              |
+| -------------- | --------------------------- | -------------------------------------------------------------------- |
 | `database_url` | `FHIR_GATEWAY_DATABASE_URL` | `postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway` |
 
 Example PowerShell override:
 
-    $env:FHIR_GATEWAY_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway"
+```powershell
+$env:FHIR_GATEWAY_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/fhir_gateway"
+```
 
 The default value is for local development only.
 
@@ -218,124 +261,118 @@ Production database credentials must be provided through environment variables o
 
 ---
 
-## SQLAlchemy base
-
-The SQLAlchemy declarative base is defined in:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/base.py
-
-It exposes:
-
-    Base.metadata
-
-Current ORM tables registered in metadata:
-
-    patients
-    patient_identifiers
-    observation_codes
-    condition_codes
-    observations
-    conditions
-    encounters
-    audit_events
-
-Alembic uses this metadata to understand the target schema.
-
-SQLAlchemy registers tables in `Base.metadata` when Python imports and evaluates ORM model classes.
-
-Alembic does not discover ORM classes by scanning folders.
-
-For this reason, `alembic/env.py` imports the SQLAlchemy `models` package so the model modules are loaded before Alembic reads `Base.metadata`.
-
----
-
-## Database engine and session factory
+## 6. Engine, session factory and HTTP database dependency
 
 Database helpers are defined in:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/database.py
+```text
+apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/database.py
+```
 
 Current helpers:
 
-    create_database_engine(database_url)
-    create_session_factory(engine)
+```text
+create_database_engine(database_url)
+create_session_factory(engine)
+```
 
-Intended future flow:
+Current application startup flow:
 
-    Settings.database_url
-        -> create_database_engine(...)
+```text
+Settings.database_url
+    -> create_database_engine(...)
         -> create_session_factory(...)
-        -> SQLAlchemy infrastructure adapters
+            -> app.state.session_factory
+```
 
-The API does not yet open database sessions for HTTP requests.
+The HTTP layer exposes a request-scoped database session dependency:
 
-No request-scoped database session dependency exists yet.
+```text
+get_database_session(request)
+```
 
-That will be introduced later when persistence-backed use-cases are wired through HTTP.
+Conceptual flow:
+
+```text
+FastAPI request
+    -> get_database_session()
+        -> session_factory()
+            -> SQLAlchemy Session
+                -> SQLAlchemy read adapter
+                    -> application use-case
+```
+
+The session is created at the HTTP boundary and injected into adapters through dependencies.
+
+Individual adapters do not create their own sessions.
+
+Individual read adapters also do not commit transactions.
+
+This keeps session lifecycle management centralized in the HTTP/interface layer.
 
 ---
 
-## SQLAlchemy read adapters
+## 7. SQLAlchemy read adapters
 
 SQLAlchemy read adapters are implemented under:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/
-
-Current adapter modules:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/audit_event_reader.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/condition_reader.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/encounter_reader.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/observation_reader.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/patient_reader.py
+```text
+apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/adapters/
+```
 
 Current adapter classes:
 
-    SqlAlchemyAuditEventReader
-    SqlAlchemyConditionReader
-    SqlAlchemyEncounterReader
-    SqlAlchemyObservationReader
-    SqlAlchemyPatientReader
+```text
+SqlAlchemyAuditEventReader
+SqlAlchemyConditionReader
+SqlAlchemyEncounterReader
+SqlAlchemyObservationReader
+SqlAlchemyPatientReader
+```
 
 Current adapter coverage:
 
-| Adapter | Application port behavior |
-|---|---|
-| `SqlAlchemyPatientReader` | Reads patients by id and searches patients by text |
-| `SqlAlchemyObservationReader` | Lists observations by patient and by patient/code |
-| `SqlAlchemyConditionReader` | Lists conditions by patient |
-| `SqlAlchemyEncounterReader` | Lists encounters by patient |
-| `SqlAlchemyAuditEventReader` | Lists recent audit events |
+| Adapter                       | Application port behavior                          |
+| ----------------------------- | -------------------------------------------------- |
+| `SqlAlchemyPatientReader`     | Reads patients by id and searches patients by text |
+| `SqlAlchemyObservationReader` | Lists observations by patient and by patient/code  |
+| `SqlAlchemyConditionReader`   | Lists conditions by patient                        |
+| `SqlAlchemyEncounterReader`   | Lists encounters by patient                        |
+| `SqlAlchemyAuditEventReader`  | Lists recent audit events                          |
 
 These adapters are infrastructure implementations of application-layer persistence ports.
 
 They are responsible for:
 
-    building SQLAlchemy SELECT statements
-    applying persistence-level filters such as logical deletion
-    loading related ORM data required by mappers
-    executing queries through a SQLAlchemy Session
-    converting ORM records to domain entities through mapper functions
+```text
+building SQLAlchemy SELECT statements
+applying persistence-level filters such as logical deletion
+loading related ORM data required by mappers
+executing queries through a SQLAlchemy Session
+converting ORM records to domain entities through mapper functions
+```
 
 They must not:
 
-    expose ORM records to the application layer
-    contain business rules that belong in domain or application services
-    commit transactions
-    create database sessions by themselves
-    import HTTP/FastAPI code
-
-Adapters receive an already-created SQLAlchemy `Session`.
-
-The lifecycle of that session belongs to the future HTTP dependency / unit-of-work wiring, not to individual adapters.
+```text
+expose ORM records to the application layer
+contain business rules that belong in domain or application services
+commit transactions
+create database sessions by themselves
+import HTTP/FastAPI code
+```
 
 Current read adapter direction:
 
-    SQLAlchemy ORM records -> ORM/domain mappers -> Domain entities
+```text
+SQLAlchemy ORM records -> ORM/domain mappers -> Domain entities
+```
 
 The reverse direction is intentionally not implemented yet:
 
-    Domain entities -> SQLAlchemy ORM records
+```text
+Domain entities -> SQLAlchemy ORM records
+```
 
 Reason:
 
@@ -343,683 +380,299 @@ The current MVP persistence flow is read-oriented.
 
 Future write-side mapping and persistence are deferred until write-side use-cases require them.
 
-### Patient read adapter
+### 7.1. Patient read adapter
 
 Current class:
 
-    SqlAlchemyPatientReader
+```text
+SqlAlchemyPatientReader
+```
 
 Implemented application behaviors:
 
-    get_by_id(patient_id: ResourceId) -> Patient | None
-    search_by_text(search_text: str) -> tuple[Patient, ...]
-
-The adapter maps:
-
-    PatientRecord -> Patient
-
-using:
-
-    patient_record_to_domain
-
-The adapter intentionally eager-loads:
-
-    PatientRecord.identifiers
-
-before calling the mapper.
-
-Reason:
-
-The Patient mapper reads `record.identifiers`.
-
-If identifiers were not intentionally loaded by the adapter, SQLAlchemy could trigger accidental lazy loading inside the mapper.
-
-Current loading strategy:
-
-    selectinload(PatientRecord.identifiers)
-
-This keeps database querying in the adapter and transformation in the mapper.
-
-Ordinary patient reads filter out logically deleted patients with:
-
-    patients.deleted_at IS NULL
+```text
+get_by_id(patient_id: ResourceId) -> Patient | None
+search_by_text(search_text: str) -> tuple[Patient, ...]
+```
 
 Search behavior currently matches patient text against:
 
-    patients.id
-    patients.name_text
-    patients.name_family
-    patient_identifiers.system
-    patient_identifiers.value
+```text
+patients.id
+patients.name_text
+patients.name_family
+patient_identifiers.system
+patient_identifiers.value
+```
 
-The search uses an outer join against patient identifiers so patients without identifiers can still be matched by patient fields.
+Ordinary patient reads filter out logically deleted patients with:
 
-### Observation read adapter
+```text
+patients.deleted_at IS NULL
+```
 
-Current class:
-
-    SqlAlchemyObservationReader
-
-Implemented application behaviors:
-
-    list_by_patient(patient_id: ResourceId) -> tuple[Observation, ...]
-    list_by_patient_and_code(patient_id: ResourceId, code: Code) -> tuple[Observation, ...]
-
-The adapter maps:
-
-    ObservationRecord + ObservationCodeRecord -> Observation
-
-using:
-
-    observation_record_to_domain
-
-The adapter joins:
-
-    observations.code_id -> observation_codes.id
+The adapter eager-loads patient identifiers before mapping.
 
 Reason:
 
-`ObservationRecord` stores only:
+The mapper reads `PatientRecord.identifiers`.
 
-    code_id
+The adapter controls loading strategy so the mapper does not accidentally trigger database queries.
 
-but the domain `Observation` requires a full `Code` value object:
+### 7.2. Observation read adapter
 
-    Code(system, code, display)
+Current class:
+
+```text
+SqlAlchemyObservationReader
+```
+
+Implemented behaviors:
+
+```text
+list_by_patient(patient_id: ResourceId) -> tuple[Observation, ...]
+list_by_patient_and_code(patient_id: ResourceId, code: Code) -> tuple[Observation, ...]
+```
+
+The adapter joins:
+
+```text
+observations.code_id -> observation_codes.id
+```
+
+Reason:
+
+`ObservationRecord` stores only `code_id`.
+
+The domain `Observation` requires a full `Code(system, code, display)` value object.
 
 Ordinary observation reads filter out logically deleted observations with:
 
-    observations.deleted_at IS NULL
+```text
+observations.deleted_at IS NULL
+```
 
 Current ordering:
 
-    observations.effective_at ASC
-    observations.id ASC
+```text
+observations.effective_at ASC
+observations.id ASC
+```
 
-### Condition read adapter
+### 7.3. Condition read adapter
 
 Current class:
 
-    SqlAlchemyConditionReader
+```text
+SqlAlchemyConditionReader
+```
 
-Implemented application behavior:
+Implemented behavior:
 
-    list_by_patient(patient_id: ResourceId) -> tuple[Condition, ...]
-
-The adapter maps:
-
-    ConditionRecord + ConditionCodeRecord -> Condition
-
-using:
-
-    condition_record_to_domain
+```text
+list_by_patient(patient_id: ResourceId) -> tuple[Condition, ...]
+```
 
 The adapter joins:
 
-    conditions.code_id -> condition_codes.id
-
-Reason:
-
-`ConditionRecord` stores only:
-
-    code_id
-
-but the domain `Condition` requires a full `Code` value object:
-
-    Code(system, code, display)
+```text
+conditions.code_id -> condition_codes.id
+```
 
 Ordinary condition reads filter out logically deleted conditions with:
 
-    conditions.deleted_at IS NULL
+```text
+conditions.deleted_at IS NULL
+```
 
 Current ordering:
 
-    conditions.recorded_at ASC
-    conditions.id ASC
+```text
+conditions.recorded_at ASC
+conditions.id ASC
+```
 
-### Encounter read adapter
+### 7.4. Encounter read adapter
 
 Current class:
 
-    SqlAlchemyEncounterReader
+```text
+SqlAlchemyEncounterReader
+```
 
-Implemented application behavior:
+Implemented behavior:
 
-    list_by_patient(patient_id: ResourceId) -> tuple[Encounter, ...]
-
-The adapter maps:
-
-    EncounterRecord -> Encounter
-
-using:
-
-    encounter_record_to_domain
+```text
+list_by_patient(patient_id: ResourceId) -> tuple[Encounter, ...]
+```
 
 No catalog join is required.
 
-Reason:
-
-`EncounterRecord` already contains the fields required by the current domain mapper:
-
-    id
-    patient_id
-    period_start_at
-    period_end_at
-
 Ordinary encounter reads filter out logically deleted encounters with:
 
-    encounters.deleted_at IS NULL
+```text
+encounters.deleted_at IS NULL
+```
 
 Current ordering:
 
-    encounters.period_start_at ASC
-    encounters.id ASC
+```text
+encounters.period_start_at ASC
+encounters.id ASC
+```
 
-### AuditEvent read adapter
+### 7.5. AuditEvent read adapter
 
 Current class:
 
-    SqlAlchemyAuditEventReader
+```text
+SqlAlchemyAuditEventReader
+```
 
-Implemented application behavior:
+Implemented behavior:
 
-    list_recent(limit: int) -> tuple[AuditEvent, ...]
-
-The adapter maps:
-
-    AuditEventRecord -> AuditEvent
-
-using:
-
-    audit_event_record_to_domain
+```text
+list_recent(limit: int) -> tuple[AuditEvent, ...]
+```
 
 AuditEvent records are append-oriented.
 
 They do not use:
 
-    LogicalDeletionMixin
-    deleted_at
+```text
+LogicalDeletionMixin
+deleted_at
+```
 
 Therefore, the audit event reader does not filter by logical deletion.
 
 Current ordering:
 
-    audit_events.recorded_at DESC
-    audit_events.id ASC
-
-The requested limit is applied with SQL `LIMIT`.
-
-This aligns with the current `ListAuditEventsUseCase`, which validates the requested limit before calling the reader.
-
-### SQLite test considerations for adapters
-
-Adapter unit tests currently use SQLite in-memory databases for speed and local simplicity.
-
-SQLite is not a full PostgreSQL replacement.
-
-Known SQLite differences affecting adapter tests:
-
-- SQLite does not preserve timezone-aware datetimes like PostgreSQL `TIMESTAMP WITH TIME ZONE`.
-- SQLite does not natively support PostgreSQL-specific functions such as `btrim`.
-
-Where needed, adapter tests isolate these differences inside test fixtures or test helpers.
-
-Examples:
-
-- Observation, Condition, Encounter, and AuditEvent adapter tests restore UTC timezone information on ORM records after SQLite roundtrip.
-- AuditEvent adapter tests register a SQLite test-only `btrim` function so the PostgreSQL-oriented audit constraint can be created under SQLite.
-
-These adjustments belong to tests, not to production adapters.
-
-Production-oriented database behavior should later be validated with PostgreSQL integration tests.
+```text
+audit_events.recorded_at DESC
+audit_events.id ASC
+```
 
 ---
 
-## Timestamp strategy
-
-Timestamp behavior is defined by:
-
-    ADR 0014: Database timestamp and audit metadata strategy
-
-Selected convention:
-
-- `created_at` and `updated_at` are technical persistence metadata.
-- They are not clinical dates.
-- They are not audit events.
-- Top-level clinical ORM-managed tables include `created_at` and `updated_at`.
-- Dependent component tables do not receive timestamps by default.
-- Domain entities do not receive `created_at` or `updated_at` by default.
-- HTTP APIs do not expose technical timestamps by default.
-- Phase 3 uses database server defaults plus SQLAlchemy `onupdate`.
-- Database triggers are deferred to future hardening.
-- Reusable SQLAlchemy timestamp behavior is implemented through `TimestampMixin`.
-
-Current mixin:
-
-    TimestampMixin
-
-Current behavior:
-
-    created_at:
-        DateTime(timezone=True)
-        server_default=func.now()
-        nullable=False
-
-    updated_at:
-        DateTime(timezone=True)
-        server_default=func.now()
-        onupdate=func.now()
-        nullable=False
-
-Known limitation:
-
-    Direct SQL updates outside SQLAlchemy may not update updated_at.
-
-Trigger-based hardening is tracked separately:
-
-    BACKLOG / POST-MVP / HARDEN / Add database triggers for updated_at consistency
-
-Important AuditEvent exception:
-
-    audit_events.created_at exists
-    audit_events.updated_at does not exist
-
-Reason:
-
-Audit events are append-oriented records.
-
-This exception is defined in:
-
-    ADR 0015: AuditEvent persistence strategy
-
----
-
-## Logical deletion strategy
-
-Logical deletion behavior is defined by:
-
-    ADR 0016: Clinical resource logical deletion strategy
-
-Top-level clinical resources use:
-
-    deleted_at
-
-as a nullable logical deletion marker.
-
-Meaning:
-
-    deleted_at IS NULL
-        resource is not logically deleted
-
-    deleted_at IS NOT NULL
-        resource is logically deleted
-
-Current mixin:
-
-    LogicalDeletionMixin
-
-Current behavior:
-
-    deleted_at:
-        DateTime(timezone=True)
-        nullable=True
-
-`deleted_at` has no server default and no automatic `onupdate`.
-
-Reason:
-
-- new resources must not be born deleted
-- ordinary updates must not automatically delete resources
-- `deleted_at` is set only by explicit logical deletion behavior
-
-Affected tables:
-
-- `patients`
-- `observations`
-- `conditions`
-- `encounters`
-
-Unaffected tables:
-
-- `patient_identifiers`
-- `observation_codes`
-- `condition_codes`
-- `audit_events`
-
-No indexes involving `deleted_at` are introduced at this stage.
-
-Current clinical SQLAlchemy read adapters filter ordinary reads with:
-
-    deleted_at IS NULL
-
-This applies to:
-
-- Patient
-- Observation
-- Condition
-- Encounter
-
-AuditEvent reads do not apply this filter because audit events do not use logical deletion.
-
----
-
-## AuditEvent persistence strategy
-
-AuditEvent persistence behavior is defined by:
-
-    ADR 0015: AuditEvent persistence strategy
-
-Audit events are persisted in:
-
-    audit_events
-
-Audit events are append-oriented historical records.
-
-They are not ordinary clinical resources.
-
-They do not use:
-
-    TimestampMixin
-    LogicalDeletionMixin
-
-The table includes:
-
-    created_at
-
-but does not include:
-
-    updated_at
-    deleted_at
-
-Reason:
-
-- `created_at` records when the audit row was inserted
-- `recorded_at` records when the audited action happened
-- `updated_at` would imply ordinary mutable row lifecycle
-- `deleted_at` would imply ordinary clinical-resource logical deletion semantics
-- audit retention, redaction, purge, and tamper-evidence require separate decisions
-
-Audit events reference audited resources using:
-
-    entity_resource_type
-    entity_id
-
-not foreign keys.
-
-Reason:
-
-- `AuditEvent.entity` may refer to different resource types
-- a single FK cannot point to multiple target tables
-- multiple nullable FKs would be heavier and more fragile
-- audit records should survive ordinary logical deletion and possible future purge workflows
-
-Current supported entity resource types:
-
-    Patient
-    Observation
-    Condition
-    Encounter
-
-Current supported actions:
-
-    read
-    search
-    export
-
-Current read behavior is implemented by:
-
-    SqlAlchemyAuditEventReader
-
-It lists recent audit events ordered by:
-
-    recorded_at DESC
-    id ASC
-
-Future write-side actions such as:
-
-    create
-    update
-    delete
-
-are deferred to:
-
-    BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
-
-Entity-based audit lookup index is deferred to:
-
-    BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
-
----
-
-## Technical timestamps vs clinical dates
-
-Technical timestamps describe persistence operations in this application's database.
-
-Examples:
-
-    created_at
-    updated_at
-    deleted_at
-
-Clinical dates describe the domain meaning of a clinical resource.
-
-Examples:
-
-    Observation.effective
-    Condition.recorded_date
-    Encounter.period
-    AuditEvent.recorded
-
-Example distinction:
-
-    observations.effective_at = 2026-05-20 08:30
-    observations.created_at = 2026-05-26 12:00
-    observations.deleted_at = NULL
-
-Meaning:
-
-    The observation was clinically effective on May 20.
-    The observation row was inserted into this database on May 26.
-    The observation is not logically deleted.
-
-Audit example:
-
-    audit_events.recorded_at = 2026-06-04 10:00
-    audit_events.created_at = 2026-06-04 10:00:02
-
-Meaning:
-
-    The audited action happened at 10:00.
-    The audit row was inserted into this database at 10:00:02.
-
-Those are different facts.
-
-Technical timestamps must not be confused with clinical dates.
-
----
-
-## Technical timestamps vs audit events
-
-Audit events describe actions performed in the system.
-
-Examples:
-
-    read
-    search
-    export
-
-A future audit event may record:
-
-    who performed the action
-    what action was performed
-    which entity was affected
-    when the action happened
-
-That is different from:
-
-    created_at
-    updated_at
-    deleted_at
-
-Example:
-
-    A user reads Patient pat-001 at 2026-05-26 18:42.
-
-That should create or correspond to an audit event.
-
-It should not necessarily update:
-
-    patients.updated_at
-
-Generic row timestamps are not a substitute for audit trail.
-
-Audit events are not a substitute for generic row timestamps.
-
----
-
-## Current ORM models
-
-Current ORM model modules:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/audit_event.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/patient.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/observation.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/condition.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/models/encounter.py
-
-Defined ORM records:
-
-    AuditEventRecord
-    PatientRecord
-    PatientIdentifierRecord
-    ObservationCodeRecord
-    ObservationRecord
-    ConditionCodeRecord
-    ConditionRecord
-    EncounterRecord
-
-These records are persistence models.
-
-They are not domain entities.
-
-The domain entities remain:
-
-    fhir_gateway.domain.entities.audit_event.AuditEvent
-    fhir_gateway.domain.entities.patient.Patient
-    fhir_gateway.domain.entities.observation.Observation
-    fhir_gateway.domain.entities.condition.Condition
-    fhir_gateway.domain.entities.encounter.Encounter
-
----
-
-## ORM/domain mappers
+## 8. ORM/domain mapper strategy
 
 ORM/domain mappers are implemented under:
 
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/
-
-Current mapper modules:
-
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/audit_event.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/condition.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/encounter.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/observation.py
-    apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/patient.py
+```text
+apps/api/src/fhir_gateway/infrastructure/persistence/sqlalchemy/mappers/
+```
 
 Current mapper functions:
 
-    audit_event_record_to_domain
-    condition_record_to_domain
-    encounter_record_to_domain
-    observation_record_to_domain
-    patient_record_to_domain
+```text
+audit_event_record_to_domain
+condition_record_to_domain
+encounter_record_to_domain
+observation_record_to_domain
+patient_record_to_domain
+```
 
 These mappers translate already-loaded SQLAlchemy ORM records into domain entities.
 
 Current mapping direction:
 
-    ORM record -> Domain entity
+```text
+ORM record -> Domain entity
+```
 
 The reverse direction is intentionally not implemented yet:
 
-    Domain entity -> ORM record
+```text
+Domain entity -> ORM record
+```
 
 Reason:
 
 The current MVP persistence flow is read-oriented.
 
-Future write-side mapping is deferred to:
+Future write-side mapping is deferred until future write-side use-cases require it.
 
-    BACKLOG / I2+ / EXPAND / Add domain-to-ORM mapping for write use-cases
-
-### Mapper responsibility
+### 8.1. Mapper responsibility
 
 Mappers are responsible for transforming persistence records into domain objects.
 
 Examples:
 
-    PatientRecord -> Patient
-    ObservationRecord + ObservationCodeRecord -> Observation
-    ConditionRecord + ConditionCodeRecord -> Condition
-    EncounterRecord -> Encounter
-    AuditEventRecord -> AuditEvent
+```text
+PatientRecord -> Patient
+ObservationRecord + ObservationCodeRecord -> Observation
+ConditionRecord + ConditionCodeRecord -> Condition
+EncounterRecord -> Encounter
+AuditEventRecord -> AuditEvent
+```
 
 Mappers construct real domain entities and value objects.
 
 Examples:
 
-    ResourceId
-    Identifier
-    HumanName
-    Code
-    Reference
-    Instant
-    Period
-    Quantity
-    Patient
-    Observation
-    Condition
-    Encounter
-    AuditEvent
+```text
+ResourceId
+Identifier
+HumanName
+Code
+Reference
+Instant
+Period
+Quantity
+Patient
+Observation
+Condition
+Encounter
+AuditEvent
+```
 
 This means mapper output passes through domain validation.
 
 If persisted data is incompatible with domain invariants, mapping should fail rather than silently returning invalid domain objects.
 
-### Mapper non-responsibilities
+### 8.2. Mapper non-responsibilities
 
 Mappers must not:
 
-    open database sessions
-    execute SQL queries
-    perform joins
-    perform lazy loading intentionally
-    filter logically deleted records
-    decide query visibility
-    expose technical persistence metadata as domain fields
-    return ORM records
-    return dictionaries instead of domain entities
+```text
+open database sessions
+execute SQL queries
+perform joins
+perform lazy loading intentionally
+filter logically deleted records
+decide query visibility
+expose technical persistence metadata as domain fields
+return ORM records
+return dictionaries instead of domain entities
+```
 
 Querying and loading are adapter responsibilities.
 
 Mapping is transformation responsibility.
 
-### Logical deletion and mappers
+### 8.3. Logical deletion and mappers
 
 Top-level clinical ORM records may include:
 
-    deleted_at
+```text
+deleted_at
+```
 
 Current affected records:
 
-    PatientRecord
-    ObservationRecord
-    ConditionRecord
-    EncounterRecord
+```text
+PatientRecord
+ObservationRecord
+ConditionRecord
+EncounterRecord
+```
 
 Mappers do not filter by:
 
-    deleted_at IS NULL
+```text
+deleted_at IS NULL
+```
 
 Reason:
 
@@ -1027,17 +680,21 @@ Logical deletion is a query visibility concern.
 
 SQLAlchemy adapters filter ordinary reads with:
 
-    deleted_at IS NULL
+```text
+deleted_at IS NULL
+```
 
 The mapper assumes that if a record is passed to it, it should attempt to map it.
 
-### Technical metadata and mappers
+### 8.4. Technical metadata and mappers
 
 Current technical persistence metadata includes:
 
-    created_at
-    updated_at
-    deleted_at
+```text
+created_at
+updated_at
+deleted_at
+```
 
 Current domain entities do not expose these fields by default.
 
@@ -1045,16 +702,20 @@ Therefore, ORM/domain mappers ignore these fields.
 
 Examples:
 
-    PatientRecord.created_at      is not mapped to Patient
-    PatientRecord.updated_at      is not mapped to Patient
-    PatientRecord.deleted_at      is not mapped to Patient
-    ObservationRecord.deleted_at  is not mapped to Observation
-    AuditEventRecord.created_at   is not mapped to AuditEvent
+```text
+PatientRecord.created_at      is not mapped to Patient
+PatientRecord.updated_at      is not mapped to Patient
+PatientRecord.deleted_at      is not mapped to Patient
+ObservationRecord.deleted_at  is not mapped to Observation
+AuditEventRecord.created_at   is not mapped to AuditEvent
+```
 
 AuditEvent-specific distinction:
 
-    AuditEventRecord.recorded_at -> AuditEvent.recorded
-    AuditEventRecord.created_at  -> ignored technical insert timestamp
+```text
+AuditEventRecord.recorded_at -> AuditEvent.recorded
+AuditEventRecord.created_at  -> ignored technical insert timestamp
+```
 
 Reason:
 
@@ -1062,869 +723,457 @@ Reason:
 
 `created_at` describes when the audit row was inserted into this database.
 
-### Patient mapper
-
-The Patient mapper converts:
-
-    PatientRecord
-    PatientIdentifierRecord
-
-into:
-
-    Patient
-    ResourceId
-    Identifier
-    HumanName
-
-Current function:
-
-    patient_record_to_domain(record: PatientRecord) -> Patient
-
-Name representation behavior:
-
-    no persisted name data
-        -> Patient.name = None
-
-    name_text present
-        -> HumanName(text=...)
-
-    name_text missing, name_given and name_family present
-        -> HumanName(given=..., family=...)
-
-    partial structured name
-        -> domain validation error
-
-The mapper does not hide partially invalid persisted name data.
-
-If the database contains:
-
-    name_text = NULL
-    name_family = NULL
-    name_given = ["John"]
-
-then `HumanName` validation should reject it because a structured name without `family` is not valid.
-
-A future database hardening item tracks stronger persistence-level enforcement:
-
-    BACKLOG / I1-MVP-CLOSURE / HARDEN / Add Patient name representation database constraint
-
-### Observation mapper
-
-The Observation mapper converts:
-
-    ObservationRecord
-    ObservationCodeRecord
-
-into:
-
-    Observation
-    ResourceId
-    ObservationStatus
-    Code
-    Reference
-    Instant
-    Quantity
-
-Current function:
-
-    observation_record_to_domain(
-        record: ObservationRecord,
-        code_record: ObservationCodeRecord,
-    ) -> Observation
-
-Reason for requiring `ObservationCodeRecord`:
-
-`ObservationRecord` stores:
-
-    code_id
-
-The domain `Observation` requires a full `Code` value object:
-
-    Code(system, code, display)
-
-Therefore, the adapter must load the matching Observation code catalog record before calling the mapper.
-
-The mapper validates that:
-
-    ObservationRecord.code_id == ObservationCodeRecord.id
-
-This prevents accidentally mapping an Observation with the wrong catalog code.
-
-### Condition mapper
-
-The Condition mapper converts:
-
-    ConditionRecord
-    ConditionCodeRecord
-
-into:
-
-    Condition
-    ResourceId
-    Code
-    Reference
-    Instant | None
-
-Current function:
-
-    condition_record_to_domain(
-        record: ConditionRecord,
-        code_record: ConditionCodeRecord,
-    ) -> Condition
-
-Reason for requiring `ConditionCodeRecord`:
-
-`ConditionRecord` stores:
-
-    code_id
-
-The domain `Condition` requires a full `Code` value object:
-
-    Code(system, code, display)
-
-Therefore, the adapter must load the matching Condition code catalog record before calling the mapper.
-
-The mapper validates that:
-
-    ConditionRecord.code_id == ConditionCodeRecord.id
-
-This prevents accidentally mapping a Condition with the wrong catalog code.
-
-### Encounter mapper
-
-The Encounter mapper converts:
-
-    EncounterRecord
-
-into:
-
-    Encounter
-    ResourceId
-    Reference
-    Period
-    Instant
-
-Current function:
-
-    encounter_record_to_domain(record: EncounterRecord) -> Encounter
-
-Mapping behavior:
-
-    EncounterRecord.patient_id       -> Reference("Patient", ResourceId(...))
-    EncounterRecord.period_start_at  -> Period.start
-    EncounterRecord.period_end_at    -> Period.end | None
-
-The domain requires `Encounter.period.start` to be present.
-
-Therefore, invalid persisted data without `period_start_at` should fail domain mapping.
-
-### AuditEvent mapper
-
-The AuditEvent mapper converts:
-
-    AuditEventRecord
-
-into:
-
-    AuditEvent
-    ResourceId
-    Instant
-    AuditAction
-    Reference
-
-Current function:
-
-    audit_event_record_to_domain(record: AuditEventRecord) -> AuditEvent
-
-Mapping behavior:
-
-    AuditEventRecord.id                   -> AuditEvent.id
-    AuditEventRecord.recorded_at          -> AuditEvent.recorded
-    AuditEventRecord.agent                -> AuditEvent.agent
-    AuditEventRecord.action               -> AuditEvent.action
-    AuditEventRecord.entity_resource_type -> AuditEvent.entity.resource_type
-    AuditEventRecord.entity_id            -> AuditEvent.entity.id
-
-The mapper does not map:
-
-    AuditEventRecord.created_at
-
-Reason:
-
-`created_at` is a technical insert timestamp.
-
-`recorded_at` is the domain-relevant audit time.
-
-### Lazy loading warning
-
-Some mapper inputs may contain ORM relationships.
-
-Example:
-
-    PatientRecord.identifiers
-
-Mappers should receive already-loaded records.
-
-SQLAlchemy adapters should intentionally eager-load required relationship data before mapping.
-
-The hardening of accidental lazy loading is tracked separately:
-
-    BACKLOG / I1-P3 / HARDEN / Prevent accidental lazy loading in SQLAlchemy mappers
-
 ---
 
-## Current database schema overview
+## 9. Current database schema overview
 
 Current database tables represented by SQLAlchemy metadata and Alembic migrations:
 
-    patients
-    patient_identifiers
-    observation_codes
-    condition_codes
-    observations
-    conditions
-    encounters
-    audit_events
+```text
+patients
+patient_identifiers
+observation_codes
+condition_codes
+observations
+conditions
+encounters
+audit_events
+```
 
----
-
-## ID strategy
+### 9.1. ID strategy
 
 The persistence layer uses two ID strategies.
 
-### Domain resource IDs
+Domain resource IDs:
 
-Main clinical resources and audit events use string IDs because they represent domain `ResourceId` values.
+```text
+patients.id
+observations.id
+conditions.id
+encounters.id
+audit_events.id
+```
 
-Current tables using string primary keys:
-
-    patients.id
-    observations.id
-    conditions.id
-    encounters.id
-    audit_events.id
-
-These IDs are controlled by the application/domain layer and are not generated by the database.
+These are string IDs controlled by the application/domain layer.
 
 Examples:
 
-    pat-001
-    obs-001
-    cond-001
-    enc-001
-    audit-001
+```text
+pat-001
+obs-001
+cond-001
+enc-001
+audit-001
+```
 
-### Technical database IDs
+Technical database IDs:
 
-Dependent component tables and catalog tables use integer autoincrement IDs.
+```text
+patient_identifiers.id
+observation_codes.id
+condition_codes.id
+```
 
-Current tables using integer autoincrement primary keys:
-
-    patient_identifiers.id
-    observation_codes.id
-    condition_codes.id
+These are integer autoincrement IDs.
 
 Reason:
 
-- these rows are not top-level clinical resources in the current domain model
-- catalog identity is naturally represented by `(system, code)`
-- integer surrogate keys make foreign keys from clinical rows simpler
-- dependent component rows do not need domain-visible resource IDs
+* dependent component rows and catalog rows are not top-level clinical resources
+* catalog identity is naturally represented by `(system, code)`
+* integer surrogate keys make foreign keys from clinical rows simpler
 
-Summary:
+### 9.2. Main table summary
 
-| Table | ID column | Type | Autoincrement | Reason |
-|---|---|---|---|---|
-| `patients` | `id` | string | no | Stores domain `ResourceId.value` |
-| `patient_identifiers` | `id` | integer | yes | Technical component row ID |
-| `observation_codes` | `id` | integer | yes | Technical catalog row ID |
-| `condition_codes` | `id` | integer | yes | Technical catalog row ID |
-| `observations` | `id` | string | no | Stores domain `ResourceId.value` |
-| `conditions` | `id` | string | no | Stores domain `ResourceId.value` |
-| `encounters` | `id` | string | no | Stores domain `ResourceId.value` |
-| `audit_events` | `id` | string | no | Stores domain `ResourceId.value` |
+| Table                 | Purpose                                         |
+| --------------------- | ----------------------------------------------- |
+| `patients`            | Stores persisted Patient root resources         |
+| `patient_identifiers` | Stores Patient identifiers as dependent records |
+| `observation_codes`   | Stores supported/selectable Observation codes   |
+| `condition_codes`     | Stores supported/selectable Condition codes     |
+| `observations`        | Stores persisted Observation resources          |
+| `conditions`          | Stores persisted Condition resources            |
+| `encounters`          | Stores persisted Encounter resources            |
+| `audit_events`        | Stores append-oriented AuditEvent records       |
 
----
+### 9.3. Main clinical relationships
 
-## Table: `patients`
+```text
+patients 1 -> N patient_identifiers
+patients 1 -> N observations
+patients 1 -> N conditions
+patients 1 -> N encounters
 
-The `patients` table stores the persistence representation of the domain `Patient` root resource.
+observation_codes 1 -> N observations
+condition_codes   1 -> N conditions
+```
 
-Current columns:
+Audit events use a logical polymorphic reference:
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | string | no | Stores `ResourceId.value`; primary key |
-| `name_text` | string | yes | Stores `HumanName.text` |
-| `name_family` | string | yes | Stores `HumanName.family` |
-| `name_given` | JSON | yes | Stores ordered `HumanName.given` values |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `deleted_at` | timezone-aware datetime | yes | Logical deletion marker |
+```text
+audit_events.entity_resource_type
+audit_events.entity_id
+```
 
-Current constraints and indexes:
-
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted patient resource |
-
-`PatientRecord` currently uses:
-
-- `TimestampMixin`
-- `LogicalDeletionMixin`
-
-The timestamp columns and logical deletion column are persistence metadata.
-
-They are not part of the domain `Patient` entity at this stage.
+They do not use foreign keys to clinical tables.
 
 ---
 
-## Table: `patient_identifiers`
+## 10. Timestamp strategy
 
-The `patient_identifiers` table stores the persistence representation of `Patient.identifiers`.
+Timestamp behavior is defined by:
 
-Current columns:
+```text
+ADR 0014: Database timestamp and audit metadata strategy
+```
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | integer | no | Technical primary key |
-| `patient_id` | string | no | Foreign key to `patients.id` |
-| `system` | string | no | Identifier system |
-| `value` | string | no | Identifier value |
+Selected convention:
 
-Current constraints and indexes:
+* `created_at` and `updated_at` are technical persistence metadata.
+* They are not clinical dates.
+* They are not audit events.
+* Top-level clinical ORM-managed tables include `created_at` and `updated_at`.
+* Dependent component tables do not receive timestamps by default.
+* Domain entities do not receive `created_at` or `updated_at` by default.
+* HTTP APIs do not expose technical timestamps by default.
+* Phase 3 uses database server defaults plus SQLAlchemy `onupdate`.
+* Database triggers are deferred to future hardening.
+* Reusable SQLAlchemy timestamp behavior is implemented through `TimestampMixin`.
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted identifier row |
-| `uq_patient_identifiers_patient_system_value` | unique constraint | Prevents duplicate `(patient_id, system, value)` identifiers |
-| `ix_patient_identifiers_system_value` | index | Supports future lookup by identifier system and value |
+Current mixin:
 
-Foreign key:
+```text
+TimestampMixin
+```
 
-    patient_identifiers.patient_id -> patients.id
+Current behavior:
 
-Delete behavior:
+```text
+created_at:
+    DateTime(timezone=True)
+    server_default=func.now()
+    nullable=False
 
-    ON DELETE CASCADE
+updated_at:
+    DateTime(timezone=True)
+    server_default=func.now()
+    onupdate=func.now()
+    nullable=False
+```
 
-This means patient identifiers are dependent persistence records of a patient.
+Known limitation:
 
-According to ADR 0014, this dependent component table does not receive `created_at` and `updated_at` by default.
+```text
+Direct SQL updates outside SQLAlchemy may not update updated_at.
+```
 
-According to ADR 0016, this dependent component table does not receive `deleted_at` by default.
+Trigger-based hardening is tracked separately:
 
----
+```text
+BACKLOG / POST-MVP / HARDEN / Add database triggers for updated_at consistency
+```
 
-## Patient ORM relationship
+Important AuditEvent exception:
 
-Current relationship:
+```text
+audit_events.created_at exists
+audit_events.updated_at does not exist
+```
 
-    PatientRecord 1 -> N PatientIdentifierRecord
+Reason:
 
-`PatientRecord` owns a collection of identifier records.
-
-The ORM relationship uses cascade/delete-orphan behavior so identifiers are treated as dependent records of the patient persistence record.
-
-Conceptually:
-
-    PatientRecord
-        └── identifiers: list[PatientIdentifierRecord]
-
-And from each identifier row:
-
-    PatientIdentifierRecord
-        └── patient: PatientRecord
-
-This relationship is persistence-level structure.
-
-It is not the same thing as the domain entity itself.
-
-The current read-side mapper translates:
-
-    PatientRecord -> Patient
-
-including:
-
-    PatientIdentifierRecord -> Identifier
-
-The reverse direction is intentionally not implemented yet:
-
-    Patient -> PatientRecord
-
-Domain-to-ORM mapping is deferred until future write-side use-cases require it.
+Audit events are append-oriented records.
 
 ---
 
-## Table: `observation_codes`
+## 11. Logical deletion strategy
 
-The `observation_codes` table stores the catalog of supported/selectable Observation codes.
+Logical deletion behavior is defined by:
 
-Current columns:
+```text
+ADR 0016: Clinical resource logical deletion strategy
+```
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | integer | no | Technical primary key |
-| `system` | string | no | Code system |
-| `code` | string | no | Code value |
-| `display` | string | yes | Human-readable display |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
+Top-level clinical resources use:
 
-Current constraints and indexes:
+```text
+deleted_at
+```
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each catalog row |
-| `uq_observation_codes_system_code` | unique constraint | Prevents duplicate Observation codes for the same `(system, code)` |
+as a nullable logical deletion marker.
 
-Notes:
+Meaning:
 
-- This table is a top-level ORM-managed catalog table.
-- It uses `TimestampMixin`.
-- It does not use `LogicalDeletionMixin`.
-- It does not contain seed data yet.
-- The clinical identity of a code is `(system, code)`.
-- The integer `id` is a persistence surrogate key used by `observations.code_id`.
+```text
+deleted_at IS NULL
+    resource is not logically deleted
 
----
+deleted_at IS NOT NULL
+    resource is logically deleted
+```
 
-## Table: `condition_codes`
+Current mixin:
 
-The `condition_codes` table stores the catalog of supported/selectable Condition codes.
+```text
+LogicalDeletionMixin
+```
 
-Current columns:
+Affected tables:
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | integer | no | Technical primary key |
-| `system` | string | no | Code system |
-| `code` | string | no | Code value |
-| `display` | string | yes | Human-readable display |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
+* `patients`
+* `observations`
+* `conditions`
+* `encounters`
 
-Current constraints and indexes:
+Unaffected tables:
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each catalog row |
-| `uq_condition_codes_system_code` | unique constraint | Prevents duplicate Condition codes for the same `(system, code)` |
+* `patient_identifiers`
+* `observation_codes`
+* `condition_codes`
+* `audit_events`
 
-Notes:
+Current clinical SQLAlchemy read adapters filter ordinary reads with:
 
-- This table is a top-level ORM-managed catalog table.
-- It uses `TimestampMixin`.
-- It does not use `LogicalDeletionMixin`.
-- It does not contain seed data yet.
-- The clinical identity of a code is `(system, code)`.
-- The integer `id` is a persistence surrogate key used by `conditions.code_id`.
+```text
+deleted_at IS NULL
+```
+
+AuditEvent reads do not apply this filter because audit events do not use logical deletion.
 
 ---
 
-## Table: `observations`
+## 12. AuditEvent persistence strategy
 
-The `observations` table stores the persistence representation of the domain `Observation` resource.
+AuditEvent persistence behavior is defined by:
 
-Current columns:
+```text
+ADR 0015: AuditEvent persistence strategy
+```
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | string | no | Stores `ResourceId.value`; primary key |
-| `patient_id` | string | no | Foreign key to `patients.id` |
-| `status` | string | no | Observation status |
-| `code_id` | integer | no | Foreign key to `observation_codes.id` |
-| `effective_at` | timezone-aware datetime | no | Clinical effective datetime |
-| `value_quantity` | float | yes | Quantity numeric value |
-| `value_unit` | string | yes | Quantity unit |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `deleted_at` | timezone-aware datetime | yes | Logical deletion marker |
+Audit events are persisted in:
 
-Current foreign keys:
+```text
+audit_events
+```
 
-| Column | References | Delete behavior |
-|---|---|---|
-| `patient_id` | `patients.id` | `ON DELETE CASCADE` |
-| `code_id` | `observation_codes.id` | restrict/no cascade |
+Audit events are append-oriented historical records.
 
-Current constraints:
+They are not ordinary clinical resources.
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted Observation resource |
-| `ck_observations_status_allowed` | check constraint | Ensures status is one of the allowed `ObservationStatus` values |
-| `ck_observations_value_quantity_requires_unit` | check constraint | Ensures `value_unit` is present when `value_quantity` is present |
+They do not use:
 
-Current indexes:
+```text
+TimestampMixin
+LogicalDeletionMixin
+```
 
-| Name | Columns | Purpose |
-|---|---|---|
-| `ix_observations_patient_code` | `patient_id`, `code_id` | List/filter observations for a patient by code |
-| `ix_observations_patient_effective_at` | `patient_id`, `effective_at` | List/order observations for a patient by clinical date |
+The table includes:
 
-Allowed status values:
+```text
+created_at
+```
 
-    registered
-    preliminary
-    final
-    amended
-    corrected
-    cancelled
-    entered-in-error
-    unknown
+but does not include:
 
-Notes:
+```text
+updated_at
+deleted_at
+```
 
-- `effective_at` is a clinical date, not a technical timestamp.
-- `created_at`, `updated_at`, and `deleted_at` are technical/application persistence metadata.
-- `code_id` does not cascade-delete observations when a catalog row is deleted.
-- This table uses `TimestampMixin`.
-- This table uses `LogicalDeletionMixin`.
-- The simple `patient_id` index is intentionally not present; current query patterns are covered by composite indexes starting with `patient_id`.
-- No index involving `deleted_at` exists yet.
+Reason:
 
----
+* `created_at` records when the audit row was inserted.
+* `recorded_at` records when the audited action happened.
+* `updated_at` would imply ordinary mutable row lifecycle.
+* `deleted_at` would imply ordinary clinical-resource logical deletion semantics.
+* audit retention, redaction, purge, and tamper-evidence require separate decisions.
 
-## Table: `conditions`
+Audit events reference audited resources using:
 
-The `conditions` table stores the persistence representation of the domain `Condition` resource.
+```text
+entity_resource_type
+entity_id
+```
 
-Current columns:
+not foreign keys.
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | string | no | Stores `ResourceId.value`; primary key |
-| `patient_id` | string | no | Foreign key to `patients.id` |
-| `code_id` | integer | no | Foreign key to `condition_codes.id` |
-| `recorded_at` | timezone-aware datetime | yes | Clinical recorded datetime |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `deleted_at` | timezone-aware datetime | yes | Logical deletion marker |
+Reason:
 
-Current foreign keys:
+* `AuditEvent.entity` may refer to different resource types.
+* a single FK cannot point to multiple target tables.
+* multiple nullable FKs would be heavier and more fragile.
+* audit records should survive ordinary logical deletion and possible future purge workflows.
 
-| Column | References | Delete behavior |
-|---|---|---|
-| `patient_id` | `patients.id` | `ON DELETE CASCADE` |
-| `code_id` | `condition_codes.id` | restrict/no cascade |
+Current supported entity resource types:
 
-Current constraints:
+```text
+Patient
+Observation
+Condition
+Encounter
+```
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted Condition resource |
+Current supported actions:
 
-Current indexes:
+```text
+read
+search
+export
+```
 
-| Name | Columns | Purpose |
-|---|---|---|
-| `ix_conditions_patient_code` | `patient_id`, `code_id` | List/filter conditions for a patient by code |
+Future write-side actions such as:
 
-Notes:
+```text
+create
+update
+delete
+```
 
-- `recorded_at` is nullable because `Condition.recorded_date` is optional in the domain.
-- `created_at`, `updated_at`, and `deleted_at` are technical/application persistence metadata.
-- `code_id` does not cascade-delete conditions when a catalog row is deleted.
-- This table uses `TimestampMixin`.
-- This table uses `LogicalDeletionMixin`.
-- The simple `patient_id` index is intentionally not present; the composite index starts with `patient_id`.
-- No index involving `deleted_at` exists yet.
+are deferred to:
+
+```text
+BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
+```
+
+Entity-based audit lookup index is deferred to:
+
+```text
+BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
+```
 
 ---
 
-## Table: `encounters`
+## 13. Technical timestamps vs clinical dates
 
-The `encounters` table stores the persistence representation of the domain `Encounter` resource.
+Technical timestamps describe persistence operations in this application's database.
 
-Current columns:
+Examples:
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | string | no | Stores `ResourceId.value`; primary key |
-| `patient_id` | string | no | Foreign key to `patients.id` |
-| `period_start_at` | timezone-aware datetime | no | Clinical encounter period start |
-| `period_end_at` | timezone-aware datetime | yes | Clinical encounter period end |
-| `created_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `updated_at` | timezone-aware datetime | no | Technical persistence timestamp |
-| `deleted_at` | timezone-aware datetime | yes | Logical deletion marker |
+```text
+created_at
+updated_at
+deleted_at
+```
 
-Current foreign keys:
+Clinical dates describe the domain meaning of a clinical resource.
 
-| Column | References | Delete behavior |
-|---|---|---|
-| `patient_id` | `patients.id` | `ON DELETE CASCADE` |
+Examples:
 
-Current constraints:
+```text
+Observation.effective
+Condition.recorded_date
+Encounter.period
+AuditEvent.recorded
+```
 
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted Encounter resource |
-| `ck_encounters_period_start_before_end` | check constraint | Ensures `period_start_at <= period_end_at` when `period_end_at` exists |
+Example distinction:
 
-Current indexes:
+```text
+observations.effective_at = 2026-05-20 08:30
+observations.created_at = 2026-05-26 12:00
+observations.deleted_at = NULL
+```
 
-| Name | Columns | Purpose |
-|---|---|---|
-| `ix_encounters_patient_period_start_at` | `patient_id`, `period_start_at` | List/order encounters for a patient by start date |
+Meaning:
 
-Notes:
+```text
+The observation was clinically effective on May 20.
+The observation row was inserted into this database on May 26.
+The observation is not logically deleted.
+```
 
-- `period_start_at` is required because the domain `Encounter` requires `Period.start`.
-- `period_end_at` is optional because the domain `Period.end` is optional.
-- `created_at`, `updated_at`, and `deleted_at` are technical/application persistence metadata.
-- This table uses `TimestampMixin`.
-- This table uses `LogicalDeletionMixin`.
-- The simple `patient_id` index is intentionally not present; the composite index starts with `patient_id`.
-- No index involving `deleted_at` exists yet.
+Audit example:
 
----
+```text
+audit_events.recorded_at = 2026-06-04 10:00
+audit_events.created_at = 2026-06-04 10:00:02
+```
 
-## Table: `audit_events`
+Meaning:
 
-The `audit_events` table stores the persistence representation of the domain `AuditEvent` resource.
+```text
+The audited action happened at 10:00.
+The audit row was inserted into this database at 10:00:02.
+```
 
-Current columns:
+Those are different facts.
 
-| Column | Type | Nullable | Purpose |
-|---|---|---|---|
-| `id` | string | no | Stores `ResourceId.value`; primary key |
-| `recorded_at` | timezone-aware datetime | no | Audit/domain timestamp; maps `AuditEvent.recorded` |
-| `agent` | string | no | Actor/system/client string supplied by trusted runtime context |
-| `action` | string | no | Audit action value |
-| `entity_resource_type` | string | no | Referenced entity resource type |
-| `entity_id` | string | no | Referenced entity resource id |
-| `created_at` | timezone-aware datetime | no | Technical insertion timestamp |
-
-Forbidden columns:
-
-| Column | Reason |
-|---|---|
-| `updated_at` | Audit events are append-oriented records |
-| `deleted_at` | Audit events do not follow ordinary clinical logical deletion semantics |
-
-Current constraints:
-
-| Name | Type | Purpose |
-|---|---|---|
-| primary key on `id` | primary key | Identifies each persisted AuditEvent |
-| `ck_audit_events_action_allowed` | check constraint | Restricts action to current `AuditAction` values |
-| `ck_audit_events_entity_resource_type_allowed` | check constraint | Restricts entity resource type to supported reference resource types |
-| `ck_audit_events_agent_not_empty` | check constraint | Prevents blank agent strings |
-
-Current indexes:
-
-| Name | Columns | Purpose |
-|---|---|---|
-| `ix_audit_events_recorded_at` | `recorded_at` | Supports listing recent audit events |
-
-Current allowed actions:
-
-    read
-    search
-    export
-
-Current allowed entity resource types:
-
-    Patient
-    Observation
-    Condition
-    Encounter
-
-Notes:
-
-- `recorded_at` is the audit event timestamp.
-- `created_at` is the technical database insertion timestamp.
-- `agent` is required but not modeled as a foreign key, enum, or catalog.
-- `agent` must come from trusted runtime context in future audit write behavior.
-- `entity_resource_type` and `entity_id` form a logical polymorphic reference.
-- `entity_id` has no foreign key.
-- `audit_events` does not use `TimestampMixin`.
-- `audit_events` does not use `LogicalDeletionMixin`.
-- No entity lookup index exists yet.
-- Current recent audit reads are implemented by `SqlAlchemyAuditEventReader`.
+Technical timestamps must not be confused with clinical dates.
 
 ---
 
-## Code catalog design
+## 14. Code catalog design
 
 Observation and Condition codes use separate catalog tables:
 
-    observation_codes
-    condition_codes
+```text
+observation_codes
+condition_codes
+```
 
 The clinical rows reference catalog rows through:
 
-    observations.code_id -> observation_codes.id
-    conditions.code_id -> condition_codes.id
+```text
+observations.code_id -> observation_codes.id
+conditions.code_id   -> condition_codes.id
+```
 
 The clinical rows do not duplicate:
 
-    code_system
-    code_code
-    code_display
+```text
+code_system
+code_code
+code_display
+```
 
 Reason:
 
-- code catalogs support future UI dropdowns
-- code catalogs avoid repeated code data in clinical rows
-- code catalogs make supported/selectable codes easier to seed and maintain
-- separate catalogs are clearer than a generic code table at this project stage
+* code catalogs support future UI dropdowns.
+* code catalogs avoid repeated code data in clinical rows.
+* code catalogs make supported/selectable codes easier to seed and maintain.
+* separate catalogs are clearer than a generic code table at this project stage.
 
 A single generic `clinical_codes` table is intentionally deferred.
 
-Catalog lifecycle is not the same as clinical resource logical deletion.
-
 Future catalog lifecycle may use fields such as:
 
-    is_selectable
-    retired_at
-    valid_from
-    valid_to
+```text
+is_selectable
+retired_at
+valid_from
+valid_to
+```
 
 That is outside the current persistence slice.
 
 ---
 
-## ObservationStatus design
-
-`ObservationStatus` is not persisted through a catalog table.
-
-Do not create:
-
-    observation_statuses
-
-Instead:
-
-    observations.status
-
-is stored as a string with a check constraint.
-
-Reason:
-
-- `ObservationStatus` is a small closed set
-- it is a resource state set, not an administratively maintained terminology catalog
-- the domain enum-like type remains the application source of truth
-- the database check constraint protects persistence integrity
-- future UI should obtain allowed statuses through API/OpenAPI/metadata, not by duplicating constants manually
-
-Current persisted allowed values:
-
-    registered
-    preliminary
-    final
-    amended
-    corrected
-    cancelled
-    entered-in-error
-    unknown
-
-Important migration note:
-
-The Alembic migration freezes these values deliberately.
-
-Migrations are historical schema steps and should not import the live domain enum directly.
-
-If the domain enum changes later, a new migration should update the database check constraint.
-
----
-
-## AuditAction design
-
-`AuditAction` is not persisted through a catalog table.
-
-Do not create:
-
-    audit_actions
-
-Instead:
-
-    audit_events.action
-
-is stored as a string with a check constraint.
-
-Reason:
-
-- `AuditAction` is currently a small closed set
-- current actions are enough for read-side and export-side use-cases
-- the domain enum remains the application source of truth
-- the database check constraint protects persistence integrity
-
-Current persisted allowed values:
-
-    read
-    search
-    export
-
-Important migration note:
-
-The Alembic migration freezes these values deliberately.
-
-Migrations are historical schema steps and should not import the live domain enum directly.
-
-If the domain enum changes later, a new migration should update the database check constraint.
-
-Future write-side actions such as:
-
-    create
-    update
-    delete
-
-are deferred to:
-
-    BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
-
----
-
-## Quantity design
-
-`Observation.value` is persisted as explicit columns:
-
-    value_quantity
-    value_unit
-
-Do not store Quantity as JSON.
-
-Reason:
-
-- the shape is simple
-- the fields are queryable
-- the mapping is clear
-- the database can enforce that `value_unit` exists when `value_quantity` exists
-
-Current constraint:
-
-    ck_observations_value_quantity_requires_unit
-
-Rule:
-
-    value_quantity IS NULL OR value_unit IS NOT NULL
-
-This mirrors the current domain rule that a quantity value requires a unit.
-
----
-
-## Reference persistence design
+## 15. Reference persistence design
 
 The domain `Reference.resource_type` is constrained to supported resource types.
 
 Current supported values:
 
-    Patient
-    Observation
-    Condition
-    Encounter
+```text
+Patient
+Observation
+Condition
+Encounter
+```
 
 `Observation`, `Condition`, and `Encounter` subjects currently must reference `Patient`.
 
 Therefore, their persistence tables use:
 
-    patient_id
+```text
+patient_id
+```
 
 not:
 
-    subject_resource_type
-    subject_id
+```text
+subject_resource_type
+subject_id
+```
 
 This keeps the schema relational and aligned with current domain rules.
 
@@ -1932,48 +1181,56 @@ This keeps the schema relational and aligned with current domain rules.
 
 Therefore, `audit_events` uses:
 
-    entity_resource_type
-    entity_id
+```text
+entity_resource_type
+entity_id
+```
 
 not:
 
-    patient_id
-    observation_id
-    condition_id
-    encounter_id
+```text
+patient_id
+observation_id
+condition_id
+encounter_id
+```
 
 and not a foreign key.
 
 ---
 
-## Index strategy
+## 16. Index strategy
 
 The current schema avoids simple `patient_id` indexes when a composite index already starts with `patient_id`.
 
 Current clinical composite indexes:
 
-    ix_observations_patient_code
-    ix_observations_patient_effective_at
-    ix_conditions_patient_code
-    ix_encounters_patient_period_start_at
+```text
+ix_observations_patient_code
+ix_observations_patient_effective_at
+ix_conditions_patient_code
+ix_encounters_patient_period_start_at
+```
 
 Reason:
 
-- these indexes support the expected query patterns
-- their first column is `patient_id`
-- they can support many patient-scoped lookups
-- avoiding redundant simple indexes reduces write overhead and storage
-- index additions should remain tied to concrete query patterns
+* these indexes support the expected query patterns.
+* their first column is `patient_id`.
+* they can support many patient-scoped lookups.
+* avoiding redundant simple indexes reduces write overhead and storage.
+* index additions should remain tied to concrete query patterns.
 
 Current audit index:
 
-    ix_audit_events_recorded_at
+```text
+ix_audit_events_recorded_at
+```
 
 Reason:
 
-- supports listing recent audit events
-- aligns with current `ListAuditEventsUseCase`
-- current use-case orders by recent audit time
+* supports listing recent audit events.
+* aligns with current `ListAuditEventsUseCase`.
+* current use-case orders by recent audit time.
 
 No indexes involving `deleted_at` are introduced yet.
 
@@ -1981,307 +1238,250 @@ No audit entity lookup index is introduced yet.
 
 Deferred audit entity lookup index:
 
-    ix_audit_events_entity(entity_resource_type, entity_id)
+```text
+ix_audit_events_entity(entity_resource_type, entity_id)
+```
 
 Tracked by:
 
-    BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
+```text
+BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
+```
 
 Future index changes should be guided by actual adapter queries and, eventually, database query plans.
 
 ---
 
-## Alembic migrations
+## 17. Alembic migrations
 
 Alembic has been initialized under:
 
-    apps/api/alembic/
+```text
+apps/api/alembic/
+```
 
 Current Alembic files:
 
-    apps/api/
-    ├── alembic.ini
-    └── alembic/
-        ├── env.py
-        ├── script.py.mako
-        └── versions/
+```text
+apps/api/
+├── alembic.ini
+└── alembic/
+    ├── env.py
+    ├── script.py.mako
+    └── versions/
+```
 
 Alembic is configured to use:
 
-- `Settings.database_url`
-- `Base.metadata`
+* `Settings.database_url`
+* `Base.metadata`
 
 The `alembic.ini` file prepends `src` to the Python path so Alembic can import the `fhir_gateway` package.
 
 Alembic imports the SQLAlchemy models package so ORM models are registered in `Base.metadata`.
 
----
-
-## Current migration status
-
 Current migration chain:
 
-    <base>
-        ↓
-    f97f9d019499_create_patient_tables
-        ↓
-    ab48a83daad7_add_clinical_resource_tables
-        ↓
-    d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
-        ↓
-    a6f3c9d2e1b8_add_audit_event_table
-
-The Patient migration creates:
-
-    patients
-    patient_identifiers
-
-It also creates:
-
-    uq_patient_identifiers_patient_system_value
-    ix_patient_identifiers_system_value
-
-The clinical resource migration creates:
-
-    observation_codes
-    condition_codes
-    observations
-    conditions
-    encounters
-
-It also creates:
-
-    uq_observation_codes_system_code
-    uq_condition_codes_system_code
-    ck_observations_status_allowed
-    ck_observations_value_quantity_requires_unit
-    ck_encounters_period_start_before_end
-    ix_observations_patient_code
-    ix_observations_patient_effective_at
-    ix_conditions_patient_code
-    ix_encounters_patient_period_start_at
-
-The logical deletion migration adds:
-
-    patients.deleted_at
-    observations.deleted_at
-    conditions.deleted_at
-    encounters.deleted_at
-
-The AuditEvent migration creates:
-
-    audit_events
-
-It also creates:
-
-    ck_audit_events_action_allowed
-    ck_audit_events_entity_resource_type_allowed
-    ck_audit_events_agent_not_empty
-    ix_audit_events_recorded_at
-
-The AuditEvent migration does not add:
-
-- `updated_at`
-- `deleted_at`
-- entity lookup index
-- foreign keys to clinical tables
-- seed data
-- triggers
-- mappers
-- adapters
-- HTTP behavior
+```text
+<base>
+    ↓
+f97f9d019499_create_patient_tables
+    ↓
+ab48a83daad7_add_clinical_resource_tables
+    ↓
+d4e8f2a1c9b7_add_logical_deletion_columns_to_clinical_resources
+    ↓
+a6f3c9d2e1b8_add_audit_event_table
+```
 
 The migrations were created manually to make the schema explicit and reviewable.
 
 Alembic autogeneration is intentionally deferred until the project has:
 
-- a local PostgreSQL workflow
-- a clearer migration review routine
-- integration tests around migrations/adapters
+* a local PostgreSQL workflow
+* a clearer migration review routine
+* integration tests around migrations/adapters
 
----
+Safe Alembic inspection commands:
 
-## Safe Alembic inspection commands
-
-Show migration history:
-
-    pipenv run alembic history --verbose
-
-Show current heads:
-
-    pipenv run alembic heads --verbose
-
-Render SQL from the current logical deletion schema to the AuditEvent migration:
-
-    pipenv run alembic upgrade d4e8f2a1c9b7:head --sql
-
-Render SQL from base to head:
-
-    pipenv run alembic upgrade base:head --sql
-
-Render downgrade from AuditEvent migration to previous migration:
-
-    pipenv run alembic downgrade a6f3c9d2e1b8:d4e8f2a1c9b7 --sql
+```text
+pipenv run alembic history --verbose
+pipenv run alembic heads --verbose
+pipenv run alembic upgrade base:head --sql
+pipenv run alembic downgrade a6f3c9d2e1b8:d4e8f2a1c9b7 --sql
+```
 
 Do not run migrations against PostgreSQL until the local PostgreSQL workflow has been explicitly configured.
 
 ---
 
-## Testing
+## 18. Testing
 
 Run persistence tests from:
 
-    apps/api
+```text
+apps/api
+```
 
 Run all persistence tests:
 
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
+```text
+pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy
+```
 
 Run ORM model tests:
 
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
+```text
+pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models
+```
 
 Run ORM/domain mapper tests:
 
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers
+```text
+pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers
+```
 
 Run SQLAlchemy read adapter tests:
 
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters
-
-Run a specific adapter test module:
-
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_patient_reader.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_observation_reader.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_condition_reader.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_encounter_reader.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters/test_audit_event_reader.py
-
-Run a specific mapper test module:
-
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_patient_mapper.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_observation_mapper.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_condition_mapper.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_encounter_mapper.py
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/mappers/test_audit_event_mapper.py
-
-Run mixin tests:
-
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/test_mixins.py
-
-Run AuditEvent ORM model tests:
-
-    pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/models/test_audit_event_orm_models.py
+```text
+pipenv run pytest tests/unit/infrastructure/persistence/sqlalchemy/adapters
+```
 
 Run architecture boundary tests:
 
-    pipenv run pytest tests/unit/architecture
+```text
+pipenv run pytest tests/unit/architecture
+```
 
 Run the full backend test suite:
 
-    pipenv run pytest
+```text
+pipenv run pytest
+```
 
 Current validated state:
 
-    full test suite passing
+```text
+full test suite passing
+```
+
+SQLite test considerations:
+
+Adapter unit tests currently use SQLite in-memory databases for speed and local simplicity.
+
+SQLite is not a full PostgreSQL replacement.
+
+Known SQLite differences affecting adapter tests:
+
+* SQLite does not preserve timezone-aware datetimes like PostgreSQL `TIMESTAMP WITH TIME ZONE`.
+* SQLite does not natively support PostgreSQL-specific functions such as `btrim`.
+
+Where needed, adapter tests isolate these differences inside test fixtures or test helpers.
+
+Production-oriented database behavior should later be validated with PostgreSQL integration tests.
 
 ---
 
-## Current limitations
+## 19. Current limitations
 
 The persistence layer does not yet include:
 
-- request-scoped SQLAlchemy session management
-- persistence-backed HTTP endpoints
-- local PostgreSQL workflow
-- Alembic autogeneration workflow
-- integration tests against PostgreSQL
-- seed data
-- logical delete/restore use-cases
-- physical purge workflow
-- partial indexes for logically non-deleted rows
-- audit event writer adapter
-- current-agent provider
-- audit event recorder service
-- audit middleware
-- authentication/authorization integration
-- entity-based audit filtering
-- advanced audit pagination
-- trigger-based `updated_at` hardening
-- write-side SQLAlchemy adapters
-- domain-to-ORM write mappers
+* exposed persistence-backed clinical HTTP endpoints
+* local PostgreSQL workflow
+* Alembic autogeneration workflow
+* integration tests against PostgreSQL
+* seed data
+* logical delete/restore use-cases
+* physical purge workflow
+* partial indexes for logically non-deleted rows
+* audit event writer adapter
+* current-agent provider
+* audit event recorder service
+* audit middleware
+* authentication/authorization integration
+* entity-based audit filtering
+* advanced audit pagination
+* trigger-based `updated_at` hardening
+* write-side SQLAlchemy adapters
+* domain-to-ORM write mappers
 
 Implemented and no longer listed as limitations:
 
-- SQLAlchemy read adapters
-- audit event reader adapter
+* SQLAlchemy read adapters
+* audit event reader adapter
+* HTTP database session dependency
+* HTTP adapter dependency wiring
+* HTTP use-case dependency wiring
 
 ---
 
-## Planned persistence work
+## 20. Planned persistence work
 
-Likely next work after this SQLAlchemy read adapter slice:
+Likely next persistence-related work:
 
-1. Wire selected persistence-backed use-cases through HTTP/dependencies.
-2. Add request-scoped SQLAlchemy session management.
+1. Protect selected clinical/audit endpoints through Phase 4 security dependencies.
+2. Expose selected persistence-backed clinical endpoints in Phase 5.
 3. Add local PostgreSQL workflow.
 4. Add Alembic autogeneration workflow.
-5. Add integration testing strategy.
+5. Add PostgreSQL integration testing strategy.
 6. Add seed data strategy.
-7. Add trigger hardening if needed.
-8. Add controlled audit event write pipeline later.
+7. Add controlled audit event write pipeline.
+8. Add audit event writer adapter.
 9. Add domain-to-ORM mapping when future write-side use-cases require it.
 10. Add filtered and paginated audit event queries when audit UI/API needs them.
 11. Add entity-based audit event lookup index when entity-scoped audit queries exist.
+12. Add trigger hardening if needed.
 
 ---
 
-## Persistence design principles
+## 21. Persistence design principles
 
 1. Keep SQLAlchemy isolated to infrastructure.
 2. Keep domain entities independent from ORM models.
 3. Keep application ports independent from SQLAlchemy.
 4. Use ORM/domain mappers at the infrastructure boundary.
 5. Use SQLAlchemy adapters to implement application persistence ports.
-6. Use Alembic for schema changes.
-7. Prefer explicit manually reviewed migrations at this stage.
-8. Avoid schema expansion without current use-case pressure.
-9. Avoid premature generic repositories.
-10. Keep routers out of persistence details.
-11. Treat technical timestamps as persistence metadata.
-12. Treat clinical dates as domain data.
-13. Treat audit events as separate from row timestamps.
-14. Use logical deletion for top-level clinical resources.
-15. Hide logically deleted resources from ordinary reads by default.
-16. Do not add indexes until query patterns justify them.
-17. Treat audit events as append-oriented records.
-18. Do not use ordinary clinical logical deletion for audit events.
-19. Do not let arbitrary user-controlled input define audit `agent`.
-20. Do not let mappers trigger accidental database queries.
-21. Do not commit transactions inside read adapters.
-22. Do not create database sessions inside read adapters.
+6. Use HTTP dependencies to compose sessions, adapters and use-cases.
+7. Use Alembic for schema changes.
+8. Prefer explicit manually reviewed migrations at this stage.
+9. Avoid schema expansion without current use-case pressure.
+10. Avoid premature generic repositories.
+11. Keep routers out of persistence details.
+12. Treat technical timestamps as persistence metadata.
+13. Treat clinical dates as domain data.
+14. Treat audit events as separate from row timestamps.
+15. Use logical deletion for top-level clinical resources.
+16. Hide logically deleted resources from ordinary reads by default.
+17. Do not add indexes until query patterns justify them.
+18. Treat audit events as append-oriented records.
+19. Do not use ordinary clinical logical deletion for audit events.
+20. Do not let arbitrary user-controlled input define audit `agent`.
+21. Do not let mappers trigger accidental database queries.
+22. Do not commit transactions inside read adapters.
+23. Do not create database sessions inside read adapters.
+24. Do not expose ORM records outside infrastructure.
 
 ---
 
-## Related ADRs
+## 22. Related ADRs
 
-- ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
-- ADR 0013: Centralized runtime configuration
-- ADR 0014: Database timestamp and audit metadata strategy
-- ADR 0015: AuditEvent persistence strategy
-- ADR 0016: Clinical resource logical deletion strategy
+* ADR 0012: SQLAlchemy persistence foundation and mapping boundaries
+* ADR 0013: Centralized runtime configuration
+* ADR 0014: Database timestamp and audit metadata strategy
+* ADR 0015: AuditEvent persistence strategy
+* ADR 0016: Clinical resource logical deletion strategy
+* ADR 0017: MVP authentication, RBAC, and audit security model
 
 ---
 
-## Related backlog items
+## 23. Related backlog items
 
-- BACKLOG / I1-P3 / HARDEN / Prevent accidental lazy loading in SQLAlchemy mappers
-- BACKLOG / I1-P5 / ARCH / Define API error response envelope before clinical endpoints
-- BACKLOG / I1-DEMO / HARDEN / Define curated terminology policy for demo Observation and Condition codes
-- BACKLOG / I1-DEMO / HARDEN / Define curated Quantity.unit policy for demo clinical observations
-- BACKLOG / I1-MVP-CLOSURE / HARDEN / Add Patient name representation database constraint
-- BACKLOG / I2 / EXPAND / Add filtered and paginated audit event queries
-- BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
-- BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
-- BACKLOG / I2+ / EXPAND / Add domain-to-ORM mapping for write use-cases
-- BACKLOG / POST-MVP / HARDEN / Add database triggers for `updated_at` consistency
+* BACKLOG / I1-P3 / HARDEN / Prevent accidental lazy loading in SQLAlchemy mappers
+* BACKLOG / I1-DEMO / HARDEN / Define curated terminology policy for demo Observation and Condition codes
+* BACKLOG / I1-DEMO / HARDEN / Define curated Quantity.unit policy for demo clinical observations
+* BACKLOG / I1-MVP-CLOSURE / HARDEN / Add Patient name representation database constraint
+* BACKLOG / I2 / EXPAND / Add filtered and paginated audit event queries
+* BACKLOG / I2 / PERFORMANCE / Add entity-based audit event lookup index
+* BACKLOG / I2+ / EXPAND / Extend AuditAction for clinical write operations
+* BACKLOG / I2+ / EXPAND / Add domain-to-ORM mapping for write use-cases
+* BACKLOG / POST-MVP / HARDEN / Add database triggers for `updated_at` consistency

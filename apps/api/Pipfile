@@ -10,6 +10,7 @@ pydantic-settings = "*"
 sqlalchemy = "*"
 alembic = "*"
 psycopg = {extras = ["binary"], version = "*"}
+pyjwt = "*"
 
 [dev-packages]
 ruff = "*"

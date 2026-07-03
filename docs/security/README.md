@@ -62,20 +62,33 @@ docs/adr/0017-mvp-authentication-rbac-and-audit-security-model.md
 
 Current security status: **Phase 4 / Security foundation in progress**
 
-The following security-related work is already defined or partially implemented:
+The following security-related work is already implemented:
 
 * MVP security model ADR
 * standard API error response envelope
 * error mapping foundation for validation, not-found, and internal errors
+* JWT-related runtime settings
+* infrastructure-level JWT token verifier
+* typed `VerifiedJwtClaims`
+* project-owned token verification errors
+* local/MVP HS256 token verification foundation
+* required JWT claim validation
+* issuer validation
+* audience validation
+* expiration validation
+* HMAC secret length validation
+* roles shape validation
+* token verification tests
+
+The following security models are already defined but not fully wired through HTTP yet:
+
 * Bearer-token-based authentication model
 * JWT-based current-principal extraction model
 * RBAC permission model
 * trusted audit actor derivation model
 
-The following security capabilities are planned during Phase 4:
+The following security capabilities are planned during the remaining Phase 4 work:
 
-* JWT settings
-* JWT token verification foundation
 * authentication HTTP dependency
 * current-principal dependency
 * RBAC authorization helpers
@@ -244,6 +257,10 @@ An unsuccessful authentication process returns:
 
 using the standard API error response envelope.
 
+HTTP authentication behavior is not wired yet.
+
+That will be introduced by the current-principal HTTP dependency in the next security sub-issue.
+
 ---
 
 ## 5. JWT requirements
@@ -288,6 +305,8 @@ The signing secret must come from environment-backed settings.
 
 The signing secret must not be hardcoded in source code.
 
+The current verifier rejects HMAC secrets shorter than 32 bytes.
+
 ## 5.4. Post-MVP signing strategy
 
 A production-oriented implementation should move toward external OAuth2/OIDC provider integration with asymmetric signing and JWKS validation.
@@ -297,6 +316,21 @@ That is intentionally deferred to post-MVP backlog work.
 ---
 
 ## 6. Token verification foundation
+
+Current implementation status: **implemented in infrastructure/security**.
+
+The current implementation includes:
+
+* `JwtTokenVerifier`
+* `VerifiedJwtClaims`
+* `TokenVerificationError`
+* `TokenVerifierConfigurationError`
+* required claim validation
+* issuer validation
+* audience validation
+* expiration validation
+* HMAC secret length validation
+* roles shape validation
 
 ## 6.1. Responsibility
 
@@ -332,16 +366,24 @@ Output on success:
 VerifiedJwtClaims
 ```
 
-Output on failure:
+Output on invalid token:
 
 ```text
-project-owned token verification error
+TokenVerificationError
+```
+
+Output on bad verifier configuration:
+
+```text
+TokenVerifierConfigurationError
 ```
 
 Conceptual example:
 
 ```text
 JwtTokenVerifier.verify(token)
+    -> validates configured secret
+    -> validates HMAC secret length
     -> validates signature
     -> validates issuer
     -> validates audience
@@ -351,7 +393,76 @@ JwtTokenVerifier.verify(token)
     -> returns VerifiedJwtClaims
 ```
 
-## 6.3. VerifiedJwtClaims
+## 6.3. What PyJWT validates
+
+The verifier delegates JWT cryptographic and standard claim validation to PyJWT.
+
+The verifier uses the configured values for:
+
+```text
+secret
+algorithm
+issuer
+audience
+```
+
+and requires the expected claims:
+
+```text
+iss
+aud
+sub
+exp
+iat
+roles
+```
+
+Conceptually:
+
+```text
+jwt.decode(
+    token,
+    expected_secret,
+    algorithms=[expected_algorithm],
+    issuer=expected_issuer,
+    audience=expected_audience,
+    required_claims=[iss, aud, sub, exp, iat, roles],
+)
+```
+
+This means:
+
+```text
+token.payload.iss must match the expected issuer
+token.payload.aud must match the expected audience
+token.payload.exp must not be expired
+token.payload must contain all required claims
+token signature must match the expected secret and algorithm
+```
+
+## 6.4. What the project validates after decode
+
+After PyJWT successfully decodes the token, the project validates that the claims have a usable shape.
+
+The verifier checks that:
+
+* `sub` is a non-empty string
+* `iss` is a non-empty string
+* `aud` is a non-empty string
+* `iat` is an integer
+* `exp` is an integer
+* `roles` is a non-empty list or tuple
+* every role is a non-empty string
+* `name`, when provided, is a non-empty string
+* `email`, when provided, is a non-empty string
+
+Reason:
+
+A claim being present is not enough.
+
+The API also needs claims to have a shape that the application can safely use.
+
+## 6.5. VerifiedJwtClaims
 
 `VerifiedJwtClaims` represents JWT claims after successful verification.
 
@@ -900,13 +1011,25 @@ ApplicationNotFoundError   -> 404 Not Found
 Unexpected exception       -> 500 Internal Server Error
 ```
 
+## 14.5. Current status
+
+The standard API error envelope already exists.
+
+Security-specific HTTP error mapping is not wired yet.
+
+Token verification errors currently remain infrastructure errors.
+
+The authentication HTTP dependency will later translate invalid/missing authentication into `401 Unauthorized`.
+
+The authorization helper will later translate insufficient permissions into `403 Forbidden`.
+
 ---
 
 ## 15. Settings
 
-## 15.1. Planned security settings
+## 15.1. Implemented security settings
 
-Planned Phase 4 security settings:
+The following Phase 4 security settings are implemented:
 
 | Setting              | Environment variable              | Purpose                      |
 | -------------------- | --------------------------------- | ---------------------------- |
@@ -915,7 +1038,7 @@ Planned Phase 4 security settings:
 | `auth_jwt_audience`  | `FHIR_GATEWAY_AUTH_JWT_AUDIENCE`  | Expected token audience      |
 | `auth_jwt_algorithm` | `FHIR_GATEWAY_AUTH_JWT_ALGORITHM` | Expected JWT algorithm       |
 
-Recommended defaults:
+Current defaults:
 
 ```text
 auth_jwt_secret    = None
@@ -930,13 +1053,21 @@ Secrets must not be committed to the repository.
 
 The local/demo signing secret should be provided through environment-backed settings.
 
+`auth_jwt_secret` intentionally defaults to `None` to avoid committing a usable signing secret to the repository.
+
+The verifier requires a configured JWT secret before verifying tokens.
+
+For HS256, the current verifier rejects secrets shorter than 32 bytes.
+
 Production secrets should eventually come from a proper secrets management strategy.
 
-## 15.3. Current status
+## 15.3. Current implementation status
 
-These security settings are planned for Sub-issue D.
+These security settings are implemented as part of Sub-issue D.
 
-After implementation, this section should be updated from planned behavior to implemented behavior.
+The verifier currently uses these settings conceptually, but HTTP dependency wiring has not been introduced yet.
+
+That wiring belongs to the next security sub-issue.
 
 ---
 
@@ -944,26 +1075,31 @@ After implementation, this section should be updated from planned behavior to im
 
 ## 16.1. Token verification tests
 
-Token verification tests should cover:
+Token verification tests currently cover:
 
 * valid token
 * missing token
 * blank token
 * missing configured secret
+* too-short configured secret
 * invalid signature
 * expired token
 * wrong issuer
 * wrong audience
 * missing required claim
+* invalid `sub`, `iss`, and `aud` shape
+* invalid `iat` and `exp` shape
 * invalid `roles` shape
 * empty roles
-* optional `name` and `email`
+* invalid optional `name` and `email` shape
+* missing optional `name` and `email`
 
 Expected behavior:
 
 ```text
 valid token   -> VerifiedJwtClaims
-invalid token -> project-owned token verification error
+invalid token -> TokenVerificationError
+bad config    -> TokenVerifierConfigurationError
 ```
 
 ## 16.2. Authentication tests
@@ -1120,12 +1256,31 @@ Raw JWT
                         -> trusted audit actor
 ```
 
+The currently implemented security foundation covers:
+
+```text
+JWT settings
+    -> JwtTokenVerifier
+        -> VerifiedJwtClaims
+```
+
+The current project is still in Phase 4 security foundation work.
+
+The API does not yet authenticate HTTP requests end-to-end.
+
+The next security step is to translate:
+
+```text
+Authorization: Bearer <token>
+    -> JwtTokenVerifier.verify(token)
+        -> VerifiedJwtClaims
+            -> CurrentPrincipal
+```
+
+Security features must not be documented as production-grade until the corresponding hardening backlog items are implemented.
+
 The key rule is:
 
 ```text
 Security decisions must be explicit, centralized, testable, and documented.
 ```
-
-The current project is still in Phase 4 security foundation work.
-
-Security features must not be documented as production-grade until the corresponding hardening backlog items are implemented.

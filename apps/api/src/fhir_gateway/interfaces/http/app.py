@@ -8,6 +8,7 @@ from fhir_gateway.infrastructure.persistence.sqlalchemy.database import (
     create_database_engine,
     create_session_factory,
 )
+from fhir_gateway.infrastructure.security import JwtTokenVerifier
 from fhir_gateway.interfaces.http.error_handlers import register_exception_handlers
 from fhir_gateway.interfaces.http.routers.health import router as health_router
 
@@ -27,12 +28,20 @@ def create_app() -> FastAPI:
     engine = create_database_engine(settings.database_url)
     session_factory = create_session_factory(engine)
 
+    jwt_token_verifier = JwtTokenVerifier(
+        secret=settings.auth_jwt_secret,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
+        algorithm=settings.auth_jwt_algorithm,
+    )
+
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
     )
 
     app.state.session_factory = session_factory
+    app.state.jwt_token_verifier = jwt_token_verifier
 
     register_exception_handlers(app)
 

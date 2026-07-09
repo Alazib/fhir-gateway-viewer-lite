@@ -2,6 +2,7 @@ import pytest
 from fhir_gateway.infrastructure.config.settings import get_settings
 from fhir_gateway.interfaces.http.app import create_app
 from sqlalchemy.orm import Session, sessionmaker
+from fhir_gateway.infrastructure.security import JwtTokenVerifier
 
 
 ENVIRONMENT_VARIABLES = (
@@ -56,3 +57,12 @@ def test_create_app_configures_session_factory():
         assert isinstance(session, Session)
     finally:
         session.close()
+
+def test_create_app_configures_jwt_token_verifier():
+    app = create_app()
+
+    assert hasattr(app.state, "jwt_token_verifier")
+    assert isinstance(
+        app.state.jwt_token_verifier,
+        JwtTokenVerifier,
+    )

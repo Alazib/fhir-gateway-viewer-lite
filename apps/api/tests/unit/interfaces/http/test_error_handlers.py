@@ -6,7 +6,11 @@ from fhir_gateway.application.errors import (
     ApplicationValidationError,
 )
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.infrastructure.security import (
+    TokenVerifierConfigurationError,
+)
 from fhir_gateway.interfaces.http.error_handlers import register_exception_handlers
+from fhir_gateway.interfaces.http.errors import AuthenticationError
 
 
 def _create_test_app() -> FastAPI:
@@ -32,6 +36,16 @@ def _create_test_app() -> FastAPI:
         raise ApplicationNotFoundError(
             resource="Patient",
             identifier="pat-001",
+        )
+
+    @app.get("/authentication-error")
+    def raise_authentication_error() -> None:
+        raise AuthenticationError()
+
+    @app.get("/token-verifier-configuration-error")
+    def raise_token_verifier_configuration_error() -> None:
+        raise TokenVerifierConfigurationError(
+            "JWT secret is not configured.",
         )
 
     @app.get("/unexpected-error")
@@ -90,6 +104,56 @@ def test_application_not_found_error_returns_standard_envelope():
             "identifier": "pat-001",
         }
     }
+
+
+def test_authentication_error_returns_unauthorized_envelope():
+    client = TestClient(_create_test_app())
+
+    response = client.get("/authentication-error")
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "error": {
+            "code": "unauthorized",
+            "message": "Authentication credentials are missing or invalid.",
+            "field": None,
+            "resource": None,
+            "identifier": None,
+        }
+    }
+
+
+def test_authentication_error_includes_bearer_challenge():
+    client = TestClient(_create_test_app())
+
+    response = client.get("/authentication-error")
+
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_token_verifier_configuration_error_returns_internal_error():
+    client = TestClient(_create_test_app())
+
+    response = client.get("/token-verifier-configuration-error")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {
+            "code": "internal_server_error",
+            "message": "Internal server error.",
+            "field": None,
+            "resource": None,
+            "identifier": None,
+        }
+    }
+
+
+def test_token_verifier_configuration_error_does_not_leak_details():
+    client = TestClient(_create_test_app())
+
+    response = client.get("/token-verifier-configuration-error")
+
+    assert "JWT secret is not configured." not in response.text
 
 
 def test_unexpected_error_returns_standard_envelope_without_leaking_details():

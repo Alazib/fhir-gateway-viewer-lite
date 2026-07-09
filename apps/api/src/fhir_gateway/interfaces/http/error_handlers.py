@@ -8,6 +8,10 @@ from fhir_gateway.application.errors import (
     ApplicationValidationError,
 )
 from fhir_gateway.domain.errors import DomainValidationError
+from fhir_gateway.infrastructure.security import (
+    TokenVerifierConfigurationError,
+)
+from fhir_gateway.interfaces.http.errors import AuthenticationError
 from fhir_gateway.interfaces.http.schemas.errors import ApiError, ApiErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,7 @@ def _build_error_response(
     field: str | None = None,
     resource: str | None = None,
     identifier: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     error_response = ApiErrorResponse(
         error=ApiError(
@@ -35,6 +40,7 @@ def _build_error_response(
     return JSONResponse(
         status_code=status_code,
         content=error_response.model_dump(),
+        headers=headers,
     )
 
 
@@ -75,6 +81,38 @@ async def handle_application_not_found_error(
     )
 
 
+async def handle_authentication_error(
+    _request: Request,
+    _exc: AuthenticationError,
+) -> JSONResponse:
+    return _build_error_response(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        code="unauthorized",
+        message="Authentication credentials are missing or invalid.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def handle_token_verifier_configuration_error(
+    request: Request,
+    exc: TokenVerifierConfigurationError,
+) -> JSONResponse:
+
+    logger.error(
+        "JWT token verifier configuration error while handling request "
+        "%s %s: %s",
+        request.method,
+        request.url.path,
+        exc.message,
+    )
+
+    return _build_error_response(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code="internal_server_error",
+        message="Internal server error.",
+    )
+
+
 async def handle_unexpected_error(
     request: Request,
     exc: Exception,
@@ -105,6 +143,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ApplicationNotFoundError,
         handle_application_not_found_error,
+    )
+    app.add_exception_handler(
+        AuthenticationError,
+        handle_authentication_error,
+    )
+    app.add_exception_handler(
+        TokenVerifierConfigurationError,
+        handle_token_verifier_configuration_error,
     )
     app.add_exception_handler(
         Exception,

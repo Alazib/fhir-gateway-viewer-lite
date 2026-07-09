@@ -1,0 +1,164 @@
+@startuml
+title How FastAPI resolves Annotated[X, Depends(provider)]
+
+start
+
+partition "Route matching" {
+
+    :Client sends HTTP request;
+
+    :FastAPI matches path and HTTP method;
+
+    :FastAPI locates endpoint function;
+
+    :Inspect endpoint parameters;
+}
+
+
+partition "Build dependency graph" {
+
+    :Read each parameter declaration;
+
+    if (Parameter contains\nAnnotated[X, Depends(provider)]?) then (yes)
+
+        :Record X as expected injected type;
+
+        :Record provider as the function or callable
+        that produces the value;
+
+        :Create dependency node for provider;
+
+        :Inspect provider parameters;
+
+        while (Provider contains another\nDepends(subprovider)?) is (yes)
+
+            :Create subdependency node;
+
+            :Inspect subprovider parameters;
+
+        endwhile (no)
+
+    else (no)
+
+        :Resolve as ordinary request data;
+
+        note right
+        Examples:
+
+        - path parameter
+        - query parameter
+        - request body
+        - Request object
+        end note
+
+    endif
+}
+
+
+partition "Resolve dependency tree for this request" {
+
+    :Start with deepest subdependencies;
+
+    if (Same dependency already resolved\nin this request?) then (yes)
+
+        if (Depends uses default cache?) then (yes)
+
+            :Reuse cached result;
+
+        else (use_cache=False)
+
+            :Execute dependency again;
+
+        endif
+
+    else (no)
+
+        :Execute dependency provider;
+
+        if (Provider returns a value?) then (yes)
+
+            :Store returned value
+            in request dependency cache;
+
+        else (Provider yields a value)
+
+            :Store yielded value
+            in request dependency cache;
+
+            :Suspend dependency after yield;
+
+            :Register cleanup for end of request;
+
+        endif
+
+    endif
+
+    :Inject resolved value into parent parameter;
+
+    if (Parent has unresolved dependencies?) then (yes)
+
+        :Resolve next required dependency;
+
+    else (no)
+
+        :Execute parent dependency;
+
+        :Store parent result;
+
+    endif
+
+    if (Endpoint still has unresolved parameters?) then (yes)
+
+        :Resolve next endpoint parameter;
+
+    else (no)
+
+        :All endpoint parameters are ready;
+
+    endif
+}
+
+
+partition "Execute endpoint" {
+
+    :Call endpoint with injected values;
+
+    note right
+    Conceptual call:
+
+    endpoint(
+        principal=CurrentPrincipal,
+        use_case=GetPatientSummaryUseCase,
+        patient_id="pat-001"
+    )
+    end note
+
+    :Endpoint executes application use case;
+
+    :Build and serialize HTTP response;
+}
+
+
+partition "Dependency cleanup" {
+
+    :Resume dependencies that used yield;
+
+    :Run cleanup code in reverse dependency order;
+
+    note right
+    In get_database_session():
+
+    execution resumes after:
+
+        yield session
+
+    leaving the with block
+    closes the SQLAlchemy Session.
+    end note
+
+    :Finish HTTP request;
+}
+
+stop
+
+@enduml

@@ -1,0 +1,261 @@
+@startuml
+title FastAPI HTTP dependency resolution\nPlanned patient-summary endpoint using current Phase 4 dependencies
+
+hide footbox
+autonumber
+
+actor "Client\nexternal caller" as Client
+
+box "Runtime and HTTP interface" #AliceBlue
+participant "Uvicorn\nASGI server" as Uvicorn
+participant "FastAPI\nDependency Injection system" as FastAPI
+participant "Planned patient-summary endpoint\ninterfaces/http/routers/patients.py\n[NOT IMPLEMENTED YET]" as Endpoint
+end box
+
+box "Security dependencies" #Lavender
+participant "HTTPBearer\nFastAPI security utility" as Bearer
+participant "get_jwt_token_verifier()\ninterfaces/http/dependencies/security.py" as VerifierDependency
+participant "get_current_principal()\ninterfaces/http/dependencies/security.py" as PrincipalDependency
+participant "JwtTokenVerifier\ninfrastructure/security/jwt_token_verifier.py" as Verifier
+end box
+
+box "Use-case dependencies" #HoneyDew
+participant "get_patient_summary_use_case()\ninterfaces/http/dependencies/use_cases.py" as UseCaseDependency
+participant "GetPatientSummaryUseCase\napplication/use_cases/get_patient_summary.py" as UseCase
+end box
+
+box "Adapter dependencies" #Moccasin
+participant "get_patient_reader()\ninterfaces/http/dependencies/adapters.py" as PatientReaderDependency
+participant "get_condition_reader()\ninterfaces/http/dependencies/adapters.py" as ConditionReaderDependency
+participant "get_encounter_reader()\ninterfaces/http/dependencies/adapters.py" as EncounterReaderDependency
+participant "get_observation_reader()\ninterfaces/http/dependencies/adapters.py" as ObservationReaderDependency
+end box
+
+box "Database dependency" #LightCyan
+participant "get_database_session()\ninterfaces/http/dependencies/database.py" as DatabaseDependency
+participant "get_session_factory()\ninterfaces/http/dependencies/database.py" as FactoryDependency
+participant "app.state.session_factory\ninterfaces/http/app.py" as SessionFactory
+participant "SQLAlchemy Session\nrequest-scoped object" as DatabaseSession
+end box
+
+
+note over FastAPI
+FastAPI has already inspected the endpoint signature.
+
+Conceptual parameters:
+
+principal:
+  Annotated[
+    CurrentPrincipal,
+    Depends(get_current_principal)
+  ]
+
+use_case:
+  Annotated[
+    GetPatientSummaryUseCase,
+    Depends(get_patient_summary_use_case)
+  ]
+end note
+
+
+Client -> Uvicorn: GET /patients/{patient_id}/summary\nAuthorization: Bearer <JWT>
+Uvicorn -> FastAPI: Forward ASGI request
+
+FastAPI -> FastAPI: Match route and build\nrequest dependency context
+
+note over FastAPI, Endpoint
+FastAPI does not call the endpoint yet.
+
+It must resolve all required dependency
+values before invoking the endpoint.
+end note
+
+
+group Resolve CurrentPrincipal branch
+
+    FastAPI -> Bearer: Extract Authorization credentials
+
+    Bearer --> FastAPI: HTTPAuthorizationCredentials
+
+    FastAPI -> VerifierDependency: get_jwt_token_verifier(request)
+
+    VerifierDependency -> VerifierDependency: Read request.app.state.jwt_token_verifier
+
+    VerifierDependency --> FastAPI: shared JwtTokenVerifier
+
+    FastAPI -> PrincipalDependency: get_current_principal(\ncredentials,\nverifier\n)
+
+    PrincipalDependency -> Verifier: verify(raw_token)
+
+    Verifier --> PrincipalDependency: VerifiedJwtClaims
+
+    PrincipalDependency -> PrincipalDependency: Create CurrentPrincipal
+
+    PrincipalDependency --> FastAPI: CurrentPrincipal P1
+
+end
+
+
+group Resolve GetPatientSummaryUseCase branch
+
+    note over FastAPI
+    get_patient_summary_use_case() cannot run yet.
+
+    It first needs four reader adapters.
+    end note
+
+
+    group Resolve shared SQLAlchemy Session
+
+        FastAPI -> DatabaseDependency: get_database_session(request)
+
+        DatabaseDependency -> FactoryDependency: get_session_factory(request)
+
+        FactoryDependency -> SessionFactory: Read request.app.state.session_factory
+
+        SessionFactory --> FactoryDependency: sessionmaker
+
+        FactoryDependency --> DatabaseDependency: sessionmaker
+
+        DatabaseDependency -> SessionFactory: session_factory()
+
+        SessionFactory -> DatabaseSession: Create Session S1
+
+        DatabaseSession --> DatabaseDependency: Session S1
+
+        DatabaseDependency --> FastAPI: yield Session S1
+
+        note over FastAPI, DatabaseSession
+        FastAPI stores Session S1 in the
+        dependency cache for this request.
+
+        The yield dependency remains suspended.
+
+        Cleanup will happen after the endpoint
+        and response processing finish.
+        end note
+
+    end
+
+
+    group Resolve Patient reader
+
+        FastAPI -> PatientReaderDependency: get_patient_reader(session=S1)
+
+        PatientReaderDependency -> PatientReaderDependency: SqlAlchemyPatientReader(S1)
+
+        PatientReaderDependency --> FastAPI: PatientReader PR1
+
+    end
+
+
+    group Resolve Condition reader
+
+        FastAPI -> FastAPI: Same get_database_session requested\nReuse cached Session S1
+
+        FastAPI -> ConditionReaderDependency: get_condition_reader(session=S1)
+
+        ConditionReaderDependency -> ConditionReaderDependency: SqlAlchemyConditionReader(S1)
+
+        ConditionReaderDependency --> FastAPI: ConditionReader CR1
+
+    end
+
+
+    group Resolve Encounter reader
+
+        FastAPI -> FastAPI: Same get_database_session requested\nReuse cached Session S1
+
+        FastAPI -> EncounterReaderDependency: get_encounter_reader(session=S1)
+
+        EncounterReaderDependency -> EncounterReaderDependency: SqlAlchemyEncounterReader(S1)
+
+        EncounterReaderDependency --> FastAPI: EncounterReader ER1
+
+    end
+
+
+    group Resolve Observation reader
+
+        FastAPI -> FastAPI: Same get_database_session requested\nReuse cached Session S1
+
+        FastAPI -> ObservationReaderDependency: get_observation_reader(session=S1)
+
+        ObservationReaderDependency -> ObservationReaderDependency: SqlAlchemyObservationReader(S1)
+
+        ObservationReaderDependency --> FastAPI: ObservationReader OR1
+
+    end
+
+
+    group Construct use case
+
+        FastAPI -> UseCaseDependency: get_patient_summary_use_case(\npatient_reader=PR1,\ncondition_reader=CR1,\nencounter_reader=ER1,\nobservation_reader=OR1\n)
+
+        UseCaseDependency -> UseCase: Create GetPatientSummaryUseCase
+
+        UseCase --> UseCaseDependency: Use-case instance UC1
+
+        UseCaseDependency --> FastAPI: GetPatientSummaryUseCase UC1
+
+    end
+
+end
+
+
+note over FastAPI
+FastAPI now has all values required
+by the endpoint:
+
+principal = P1
+use_case = UC1
+patient_id = value from path
+end note
+
+
+FastAPI -> Endpoint: get_patient_summary(\npatient_id,\nprincipal=P1,\nuse_case=UC1\n)
+
+Endpoint -> UseCase: execute(patient_id)
+
+note over UseCase, DatabaseSession
+The use case calls its ports.
+
+The four SQLAlchemy readers use
+the same request-scoped Session S1.
+end note
+
+UseCase --> Endpoint: PatientSummary
+
+Endpoint --> FastAPI: HTTP response data
+
+FastAPI -> FastAPI: Serialize response
+
+
+group Cleanup yield dependencies
+
+    FastAPI -> DatabaseDependency: Resume after yield
+
+    DatabaseDependency -> DatabaseSession: Exit context manager\nClose Session S1
+
+    DatabaseSession --> DatabaseDependency: Session closed
+
+    DatabaseDependency --> FastAPI: Dependency cleanup complete
+
+end
+
+
+FastAPI --> Uvicorn: HTTP 200 response
+Uvicorn --> Client: Patient summary response
+
+
+note over FastAPI
+The visual order of sibling dependency
+branches is explanatory.
+
+The important rule is dependency order:
+
+a dependency is executed only after
+its own subdependencies are resolved.
+end note
+
+@enduml

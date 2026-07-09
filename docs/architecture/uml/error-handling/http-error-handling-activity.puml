@@ -1,0 +1,191 @@
+@startuml
+title HTTP exception-to-response decision flow\nPhase 4 - current error handler mapping
+
+start
+
+partition "HTTP request execution\nFastAPI / interfaces/http" {
+
+    :Client sends HTTP request;
+
+    :Uvicorn forwards request
+    to FastAPI app;
+
+    :FastAPI matches route;
+
+    :FastAPI resolves dependencies;
+
+    if (Protected endpoint?) then (yes)
+
+        :Run security dependency;
+
+        if (Bearer credentials present?) then (yes)
+
+            :Call JwtTokenVerifier.verify(token);
+
+            if (Verifier configuration valid?) then (yes)
+
+                if (JWT valid?) then (yes)
+
+                    :Build CurrentPrincipal;
+                    :Continue request;
+
+                else (no)
+
+                    :TokenVerificationError;
+                    :Translate to AuthenticationError;
+
+                endif
+
+            else (no)
+
+                :TokenVerifierConfigurationError;
+
+            endif
+
+        else (no)
+
+            :AuthenticationError;
+
+        endif
+
+    else (no)
+
+        :Continue public request;
+
+    endif
+
+    if (No exception so far?) then (yes)
+
+        :Execute endpoint / use case / domain / infrastructure;
+
+    endif
+}
+
+
+if (Was an exception raised?) then (no)
+
+    :Return successful 2xx response;
+
+    stop
+
+else (yes)
+
+    :Exception propagates to FastAPI;
+
+    :FastAPI selects registered exception handler;
+
+endif
+
+
+partition "interfaces/http/error_handlers.py" {
+
+    if (ApplicationValidationError?) then (yes)
+
+        :handle_application_validation_error();
+
+        :HTTP 400 Bad Request;
+        :code = validation_error;
+        :message = exc.message;
+        :field = exc.field;
+
+    elseif (DomainValidationError?) then (yes)
+
+        :handle_domain_validation_error();
+
+        :HTTP 400 Bad Request;
+        :code = validation_error;
+        :message = exc.message;
+        :field = exc.field;
+
+    elseif (ApplicationNotFoundError?) then (yes)
+
+        :handle_application_not_found_error();
+
+        :HTTP 404 Not Found;
+        :code = not_found;
+        :message = exc.message;
+        :resource = exc.resource;
+        :identifier = exc.identifier;
+
+    elseif (AuthenticationError?) then (yes)
+
+        :handle_authentication_error();
+
+        :HTTP 401 Unauthorized;
+        :code = unauthorized;
+        :message = generic authentication message;
+
+        :Add response header;
+        :WWW-Authenticate = Bearer;
+
+        note right
+        Used for:
+
+        - missing Bearer credentials
+        - wrong authentication scheme
+        - malformed token
+        - invalid signature
+        - expired token
+        - wrong issuer/audience
+        - invalid JWT claims
+
+        Internal token details are hidden.
+        end note
+
+    elseif (TokenVerifierConfigurationError?) then (yes)
+
+        :handle_token_verifier_configuration_error();
+
+        :Log real configuration error;
+
+        :HTTP 500 Internal Server Error;
+        :code = internal_server_error;
+        :message = generic internal error;
+
+        note right
+        Used for server-side
+        verifier misconfiguration.
+
+        Example:
+        missing or too-short JWT secret.
+
+        This must never become 401.
+        end note
+
+    else (Any other Exception)
+
+        :handle_unexpected_error();
+
+        :Log exception with traceback;
+
+        :HTTP 500 Internal Server Error;
+        :code = internal_server_error;
+        :message = generic internal error;
+
+    endif
+
+    :Call _build_error_response();
+
+    :Create ApiError;
+
+    :Wrap in ApiErrorResponse;
+
+    :Serialize envelope;
+
+    :Create JSONResponse
+    with status code, body
+    and optional headers;
+}
+
+partition "HTTP response" {
+
+    :FastAPI returns JSONResponse;
+
+    :Uvicorn sends response;
+
+    :Client receives error response;
+}
+
+stop
+
+@enduml

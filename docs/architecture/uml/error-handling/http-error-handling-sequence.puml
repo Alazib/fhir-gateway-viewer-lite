@@ -1,0 +1,260 @@
+@startuml
+title HTTP request error handling flow\nPhase 4 - after current-principal HTTP dependency
+
+hide footbox
+autonumber
+
+actor "Client\nexternal caller" as Client
+
+box "Runtime" #LightGray
+participant "Uvicorn\nASGI server" as Uvicorn
+participant "FastAPI app\ninterfaces/http/app.py" as FastAPI
+end box
+
+box "HTTP interface layer" #AliceBlue
+participant "Router / endpoint\ninterfaces/http/routers/*.py" as Router
+participant "HTTP dependencies\ninterfaces/http/dependencies/*.py" as Dependencies
+participant "Security dependency\ninterfaces/http/dependencies/security.py" as SecurityDependency
+participant "Error handlers\ninterfaces/http/error_handlers.py" as ErrorHandlers
+participant "_build_error_response()\ninterfaces/http/error_handlers.py" as ErrorBuilder
+participant "Error schemas\ninterfaces/http/schemas/errors.py" as ErrorSchemas
+participant "JSONResponse\nfastapi.responses" as JsonResponse
+end box
+
+box "Application / domain / infrastructure" #HoneyDew
+participant "JwtTokenVerifier\ninfrastructure/security/jwt_token_verifier.py" as Verifier
+participant "Use case / domain /\ninfrastructure adapter" as Backend
+end box
+
+participant "Logger\nlogging" as Logger
+
+
+note over FastAPI, ErrorHandlers
+Application startup happens before requests:
+
+create_app()
+  -> register_exception_handlers(app)
+
+This registers which handler FastAPI must call
+for each known exception type.
+
+The registration is application-scoped,
+not request-scoped.
+end note
+
+
+Client -> Uvicorn: HTTP request
+Uvicorn -> FastAPI: ASGI request
+FastAPI -> Router: Match route
+Router -> Dependencies: Resolve dependencies needed by endpoint
+
+alt Protected endpoint needs authentication
+
+    Dependencies -> SecurityDependency: get_current_principal()
+
+    SecurityDependency -> SecurityDependency: HTTPBearer(auto_error=False)
+
+    alt Missing Authorization header or wrong scheme
+
+        note right of SecurityDependency
+        Examples:
+
+        No Authorization header
+
+        Authorization: Basic abc123
+        end note
+
+        SecurityDependency -> SecurityDependency: raise AuthenticationError
+        SecurityDependency --> FastAPI: exception propagates
+
+        FastAPI -> ErrorHandlers: handle_authentication_error(request, exc)
+        ErrorHandlers -> ErrorBuilder: status=401\ncode=unauthorized\nmessage=generic\nheaders={WWW-Authenticate: Bearer}
+        ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+        ErrorSchemas --> ErrorBuilder: serialized envelope
+        ErrorBuilder -> JsonResponse: create JSONResponse
+        JsonResponse --> ErrorHandlers: response
+        ErrorHandlers --> FastAPI: 401 Unauthorized
+        FastAPI --> Uvicorn: 401 + envelope + WWW-Authenticate
+        Uvicorn --> Client: authentication error response
+
+    else Bearer token is present
+
+        SecurityDependency -> Verifier: verify(raw_token)
+
+        alt Token is invalid
+
+            note right of Verifier
+            Examples:
+
+            - malformed JWT
+            - invalid signature
+            - expired token
+            - wrong issuer
+            - wrong audience
+            - missing required claim
+            - invalid claim shape
+            end note
+
+            Verifier --> SecurityDependency: TokenVerificationError
+
+            note right of SecurityDependency
+            The technical token error is translated
+            into a generic HTTP authentication error.
+
+            Client does not receive the internal reason.
+            end note
+
+            SecurityDependency -> SecurityDependency: raise AuthenticationError
+            SecurityDependency --> FastAPI: exception propagates
+
+            FastAPI -> ErrorHandlers: handle_authentication_error(request, exc)
+            ErrorHandlers -> ErrorBuilder: status=401\ncode=unauthorized\nmessage=generic\nheaders={WWW-Authenticate: Bearer}
+            ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+            ErrorSchemas --> ErrorBuilder: serialized envelope
+            ErrorBuilder -> JsonResponse: create JSONResponse
+            JsonResponse --> ErrorHandlers: response
+            ErrorHandlers --> FastAPI: 401 Unauthorized
+            FastAPI --> Uvicorn: 401 + envelope + WWW-Authenticate
+            Uvicorn --> Client: authentication error response
+
+        else Verifier configuration is invalid
+
+            note right of Verifier
+            Examples:
+
+            - JWT secret is missing
+            - JWT secret is too short
+
+            This is a server configuration problem,
+            not a client credential problem.
+            end note
+
+            Verifier --> SecurityDependency: TokenVerifierConfigurationError
+
+            note right of SecurityDependency
+            get_current_principal()
+            does not catch this exception.
+            end note
+
+            SecurityDependency --> FastAPI: exception propagates
+
+            FastAPI -> ErrorHandlers: handle_token_verifier_configuration_error(request, exc)
+            ErrorHandlers -> Logger: logger.error(real internal reason)
+            Logger --> ErrorHandlers: logged
+            ErrorHandlers -> ErrorBuilder: status=500\ncode=internal_server_error\nmessage=generic
+            ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+            ErrorSchemas --> ErrorBuilder: serialized envelope
+            ErrorBuilder -> JsonResponse: create JSONResponse
+            JsonResponse --> ErrorHandlers: response
+            ErrorHandlers --> FastAPI: 500 Internal Server Error
+            FastAPI --> Uvicorn: 500 + generic envelope
+            Uvicorn --> Client: internal server error response
+
+        else Token is valid
+
+            Verifier --> SecurityDependency: VerifiedJwtClaims
+            SecurityDependency -> SecurityDependency: Create CurrentPrincipal
+            SecurityDependency --> Dependencies: CurrentPrincipal
+
+        end
+
+    end
+
+else Public endpoint
+
+    note right of Dependencies
+    Example:
+
+    GET /health
+
+    No authentication dependency is executed.
+    end note
+
+end
+
+
+alt Dependencies completed successfully
+
+    Dependencies --> Router: dependency values
+    Router -> Backend: execute endpoint/use-case flow
+
+    alt Application validation fails
+
+        Backend --> FastAPI: ApplicationValidationError
+        FastAPI -> ErrorHandlers: handle_application_validation_error(request, exc)
+        ErrorHandlers -> ErrorBuilder: status=400\ncode=validation_error\nmessage=exc.message\nfield=exc.field
+        ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+        ErrorSchemas --> ErrorBuilder: serialized envelope
+        ErrorBuilder -> JsonResponse: create JSONResponse
+        JsonResponse --> ErrorHandlers: response
+        ErrorHandlers --> FastAPI: 400 Bad Request
+        FastAPI --> Uvicorn: 400 + validation envelope
+        Uvicorn --> Client: validation error response
+
+    else Domain validation fails
+
+        Backend --> FastAPI: DomainValidationError
+        FastAPI -> ErrorHandlers: handle_domain_validation_error(request, exc)
+        ErrorHandlers -> ErrorBuilder: status=400\ncode=validation_error\nmessage=exc.message\nfield=exc.field
+        ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+        ErrorSchemas --> ErrorBuilder: serialized envelope
+        ErrorBuilder -> JsonResponse: create JSONResponse
+        JsonResponse --> ErrorHandlers: response
+        ErrorHandlers --> FastAPI: 400 Bad Request
+        FastAPI --> Uvicorn: 400 + validation envelope
+        Uvicorn --> Client: domain validation error response
+
+    else Resource is not found
+
+        Backend --> FastAPI: ApplicationNotFoundError
+        FastAPI -> ErrorHandlers: handle_application_not_found_error(request, exc)
+        ErrorHandlers -> ErrorBuilder: status=404\ncode=not_found\nmessage=exc.message\nresource=exc.resource\nidentifier=exc.identifier
+        ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+        ErrorSchemas --> ErrorBuilder: serialized envelope
+        ErrorBuilder -> JsonResponse: create JSONResponse
+        JsonResponse --> ErrorHandlers: response
+        ErrorHandlers --> FastAPI: 404 Not Found
+        FastAPI --> Uvicorn: 404 + not-found envelope
+        Uvicorn --> Client: not-found response
+
+    else Unexpected error
+
+        Backend --> FastAPI: Exception
+        FastAPI -> ErrorHandlers: handle_unexpected_error(request, exc)
+        ErrorHandlers -> Logger: logger.exception(...)\nwith traceback
+        Logger --> ErrorHandlers: logged
+        ErrorHandlers -> ErrorBuilder: status=500\ncode=internal_server_error\nmessage=generic
+        ErrorBuilder -> ErrorSchemas: ApiError + ApiErrorResponse
+        ErrorSchemas --> ErrorBuilder: serialized envelope
+        ErrorBuilder -> JsonResponse: create JSONResponse
+        JsonResponse --> ErrorHandlers: response
+        ErrorHandlers --> FastAPI: 500 Internal Server Error
+        FastAPI --> Uvicorn: 500 + generic envelope
+        Uvicorn --> Client: internal server error response
+
+    else No error
+
+        Backend --> Router: application result
+        Router --> FastAPI: successful response body
+        FastAPI --> Uvicorn: 2xx response
+        Uvicorn --> Client: successful response
+
+    end
+
+end
+
+note over ErrorBuilder, ErrorSchemas
+All custom handled errors use the same envelope:
+
+{
+  "error": {
+    "code": "...",
+    "message": "...",
+    "field": null,
+    "resource": null,
+    "identifier": null
+  }
+}
+end note
+
+@enduml

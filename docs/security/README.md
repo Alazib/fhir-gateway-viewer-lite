@@ -18,10 +18,12 @@
 * [14. Security error behavior](#14-security-error-behavior)
 * [15. Settings](#15-settings)
 * [16. Testing strategy](#16-testing-strategy)
-* [17. MVP limitations](#17-mvp-limitations)
-* [18. Post-MVP backlog references](#18-post-mvp-backlog-references)
-* [19. Related ADRs](#19-related-adrs)
-* [20. Summary](#20-summary)
+* [17. Security architecture and object lifecycles](#17-security-architecture-and-object-lifecycles)
+* [18. MVP limitations](#18-mvp-limitations)
+* [19. Post-MVP backlog references](#19-post-mvp-backlog-references)
+* [20. UML documentation](#20-uml-documentation)
+* [21. Related ADRs](#21-related-adrs)
+* [22. Summary](#22-summary)
 
 ---
 
@@ -29,7 +31,7 @@
 
 This document explains the MVP security model for the `FHIR Gateway Viewer Lite` backend.
 
-It documents how the project handles, or plans to handle during Phase 4 and Phase 5:
+It documents how the project currently handles, or plans to handle during Phase 4 and Phase 5:
 
 * authentication
 * JWT verification
@@ -66,34 +68,41 @@ The following security-related work is already implemented:
 
 * MVP security model ADR
 * standard API error response envelope
-* error mapping foundation for validation, not-found, and internal errors
+* error mapping for validation, not-found, authentication, JWT verifier configuration, and unexpected internal errors
 * JWT-related runtime settings
 * infrastructure-level JWT token verifier
 * typed `VerifiedJwtClaims`
 * project-owned token verification errors
-* local/MVP HS256 token verification foundation
+* local/MVP HS256 token-verification foundation
 * required JWT claim validation
 * issuer validation
 * audience validation
 * expiration validation
 * HMAC secret length validation
 * roles shape validation
-* token verification tests
-
-The following security models are already defined but not fully wired through HTTP yet:
-
-* Bearer-token-based authentication model
-* JWT-based current-principal extraction model
-* RBAC permission model
-* trusted audit actor derivation model
+* application-level `CurrentPrincipal`
+* `CurrentPrincipal` invariant validation
+* application-scoped JWT verifier composition
+* HTTP Bearer credential extraction
+* reusable current-principal HTTP dependency
+* translation of invalid or missing credentials into `401 Unauthorized`
+* `WWW-Authenticate: Bearer` response header
+* safe handling of JWT verifier configuration errors as `500 Internal Server Error`
+* token-verification tests
+* current-principal tests
+* authentication dependency tests
+* security error-envelope tests
 
 The following security capabilities are planned during the remaining Phase 4 work:
 
-* authentication HTTP dependency
-* current-principal dependency
+* role-to-permission mapping
 * RBAC authorization helpers
-* reusable security dependencies for future protected endpoints
+* reusable permission dependencies for future protected endpoints
+* `403 Forbidden` handling for insufficient permissions
 * audit actor derivation from trusted security context
+* security and audit dependency wiring for future endpoints
+* final architecture-boundary verification
+* final Phase 4 security documentation and quality-gate update
 
 The following capabilities are planned for Phase 5 or later:
 
@@ -108,7 +117,7 @@ The following capabilities are not part of the MVP security foundation:
 * external OAuth/OIDC integration
 * JWKS validation
 * token revocation
-* session management
+* server-side authentication session management
 * database-backed users
 * password login
 * user registration
@@ -128,9 +137,26 @@ Future clinical and audit endpoints should not be treated as public by default.
 
 ## 3. Security pipeline
 
-## 3.1. High-level request flow
+### 3.1. Current implemented authentication flow
 
-The intended MVP request flow is:
+The currently implemented authentication flow is:
+
+```text
+HTTP request
+    -> Authorization: Bearer <token>
+        -> HTTPBearer(auto_error=False)
+            -> JwtTokenVerifier
+                -> VerifiedJwtClaims
+                    -> CurrentPrincipal
+```
+
+The pipeline currently stops after building `CurrentPrincipal`.
+
+Authorization and audit wiring are still pending.
+
+### 3.2. Complete intended MVP request flow
+
+The complete intended MVP request flow is:
 
 ```text
 HTTP request
@@ -143,7 +169,7 @@ HTTP request
                             -> audit actor derived from principal
 ```
 
-## 3.2. Token-to-authorization pipeline
+### 3.3. Token-to-authorization pipeline
 
 The internal security pipeline should be understood as:
 
@@ -178,40 +204,49 @@ The token must first be verified.
 
 The verified claims must then be translated into a current principal.
 
-The current principal is then used by authorization helpers.
+The current principal will later be used by authorization helpers.
 
-## 3.3. Main concepts
+### 3.4. Main concepts
 
-| Concept             | Meaning                                                                      |
-| ------------------- | ---------------------------------------------------------------------------- |
-| Bearer token        | Credential sent by the client in the `Authorization` header                  |
-| Raw JWT             | Token string received from the client; not trusted yet                       |
-| Verified JWT claims | Claims extracted after signature, issuer, audience and expiration validation |
-| CurrentPrincipal    | Trusted runtime identity derived from verified claims                        |
-| Role                | Coarse-grained user category, such as `clinician` or `auditor`               |
-| Permission          | Fine-grained operation capability, such as `patient:read`                    |
-| RBAC                | Role-based access control; maps roles to permissions                         |
-| Audit actor         | Trusted actor written to audit records                                       |
+| Concept             | Meaning                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| Bearer token        | Credential sent by the client in the `Authorization` header                          |
+| Raw JWT             | Token string received from the client; not trusted yet                               |
+| Verified JWT claims | Claims extracted after signature, issuer, audience, expiration, and shape validation |
+| CurrentPrincipal    | Trusted runtime identity derived from verified claims                                |
+| Role                | Coarse-grained user category, such as `clinician` or `auditor`                       |
+| Permission          | Fine-grained operation capability, such as `patient:read`                            |
+| RBAC                | Role-based access control; maps roles to permissions                                 |
+| Audit actor         | Trusted actor written to audit records                                               |
 
-## 3.4. Boundary rule
+### 3.5. Boundary rules
 
 Security translation to HTTP belongs to the HTTP/interface layer.
 
 Token verification belongs to infrastructure/security because it depends on a JWT library.
 
-Authorization decisions should be testable without a real HTTP server.
+`CurrentPrincipal` belongs to application/security because it represents the authenticated actor required by application-level behavior.
+
+Authorization decisions should remain testable without a real HTTP server.
 
 Domain and application layers must remain independent from FastAPI.
 
-Domain and application layers must not directly return HTTP responses, status codes, or FastAPI exceptions.
+Domain and application layers must remain independent from PyJWT.
+
+Domain and application layers must not directly return:
+
+* HTTP responses
+* HTTP status codes
+* FastAPI exceptions
+* JWT-library objects
 
 ---
 
 ## 4. Authentication
 
-## 4.1. Bearer token model
+### 4.1. Bearer token model
 
-Protected endpoints will use the HTTP `Authorization` header:
+Protected endpoints use the HTTP `Authorization` header:
 
 ```text
 Authorization: Bearer <token>
@@ -226,7 +261,7 @@ GET /patients/pat-001/summary
 Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 ```
 
-## 4.2. JWT-based MVP authentication
+### 4.2. JWT-based MVP authentication
 
 The MVP authentication model uses signed JWTs.
 
@@ -245,9 +280,20 @@ The API must not trust a token only because it contains fields such as:
 
 The token must first pass verification.
 
-## 4.3. Authentication result
+### 4.3. Authentication result
 
-A successful authentication process eventually produces a trusted `CurrentPrincipal`.
+A successful authentication process produces a trusted `CurrentPrincipal`.
+
+Current implemented HTTP authentication flow:
+
+```text
+HTTP request
+    -> Authorization: Bearer <token>
+        -> HTTPBearer(auto_error=False)
+            -> JwtTokenVerifier.verify(token)
+                -> VerifiedJwtClaims
+                    -> CurrentPrincipal
+```
 
 An unsuccessful authentication process returns:
 
@@ -257,15 +303,79 @@ An unsuccessful authentication process returns:
 
 using the standard API error response envelope.
 
-HTTP authentication behavior is not wired yet.
+The response includes:
 
-That will be introduced by the current-principal HTTP dependency in the next security sub-issue.
+```text
+WWW-Authenticate: Bearer
+```
+
+The API intentionally returns a generic authentication error message.
+
+It does not expose whether the token:
+
+* was expired
+* was malformed
+* was signed with an invalid secret
+* was issued by the wrong issuer
+* targeted the wrong audience
+* lacked required claims
+* contained invalid claim shapes
+
+### 4.4. Authentication does not create a server-side session
+
+The current JWT model is stateless.
+
+The API does not create or store a persistent authentication session for the user.
+
+Each protected request must include its Bearer token.
+
+Conceptually:
+
+```text
+Request 1
+    -> sends JWT
+    -> JWT is verified
+    -> CurrentPrincipal is created
+    -> request ends
+
+Request 2
+    -> sends JWT again
+    -> JWT is verified again
+    -> new CurrentPrincipal is created
+    -> request ends
+```
+
+The API does not store the principal permanently between requests.
+
+### 4.5. HTTPBearer responsibility
+
+The HTTP dependency uses FastAPI `HTTPBearer` with:
+
+```text
+auto_error = False
+```
+
+Its responsibility is limited to extracting Bearer credentials.
+
+It does not verify the JWT.
+
+Conceptually:
+
+```text
+Authorization: Bearer abc123
+    -> HTTPAuthorizationCredentials(
+           scheme="Bearer",
+           credentials="abc123"
+       )
+```
+
+Using `auto_error=False` allows the project to preserve its own standard error envelope rather than returning FastAPI's default authentication error body.
 
 ---
 
 ## 5. JWT requirements
 
-## 5.1. Required claims
+### 5.1. Required claims
 
 The MVP JWT must include:
 
@@ -278,7 +388,7 @@ The MVP JWT must include:
 | `iat`   | Issued-at time                             |
 | `roles` | Roles assigned to the caller               |
 
-## 5.2. Optional claims
+### 5.2. Optional claims
 
 Optional claims may include:
 
@@ -291,7 +401,7 @@ Optional claims must not be required for authorization decisions.
 
 Authorization must rely on validated identity and roles/permissions.
 
-## 5.3. MVP signing strategy
+### 5.3. MVP signing strategy
 
 The MVP uses symmetric JWT signing.
 
@@ -307,9 +417,15 @@ The signing secret must not be hardcoded in source code.
 
 The current verifier rejects HMAC secrets shorter than 32 bytes.
 
-## 5.4. Post-MVP signing strategy
+### 5.4. Post-MVP signing strategy
 
-A production-oriented implementation should move toward external OAuth2/OIDC provider integration with asymmetric signing and JWKS validation.
+A production-oriented implementation should move toward:
+
+* external OAuth2/OIDC provider integration
+* asymmetric signing
+* JWKS validation
+* key rotation
+* production secrets management
 
 That is intentionally deferred to post-MVP backlog work.
 
@@ -317,7 +433,7 @@ That is intentionally deferred to post-MVP backlog work.
 
 ## 6. Token verification foundation
 
-Current implementation status: **implemented in infrastructure/security**.
+Current implementation status: **implemented in infrastructure/security**
 
 The current implementation includes:
 
@@ -332,7 +448,7 @@ The current implementation includes:
 * HMAC secret length validation
 * roles shape validation
 
-## 6.1. Responsibility
+### 6.1. Responsibility
 
 The token verifier is responsible for answering:
 
@@ -343,6 +459,7 @@ Is this token authentic, valid and usable?
 The verifier does not:
 
 * perform login
+* issue tokens
 * create a user session
 * check endpoint permissions
 * know which endpoint is being accessed
@@ -352,7 +469,7 @@ The verifier does not:
 
 It only verifies the token and returns trusted claims.
 
-## 6.2. Expected verifier input and output
+### 6.2. Expected verifier input and output
 
 Input:
 
@@ -372,13 +489,13 @@ Output on invalid token:
 TokenVerificationError
 ```
 
-Output on bad verifier configuration:
+Output on invalid server configuration:
 
 ```text
 TokenVerifierConfigurationError
 ```
 
-Conceptual example:
+Conceptual flow:
 
 ```text
 JwtTokenVerifier.verify(token)
@@ -389,13 +506,14 @@ JwtTokenVerifier.verify(token)
     -> validates audience
     -> validates expiration
     -> validates required claims
+    -> validates claim shapes
     -> validates roles shape
     -> returns VerifiedJwtClaims
 ```
 
-## 6.3. What PyJWT validates
+### 6.3. What PyJWT validates
 
-The verifier delegates JWT cryptographic and standard claim validation to PyJWT.
+The verifier delegates JWT cryptographic and standard-claim validation to PyJWT.
 
 The verifier uses the configured values for:
 
@@ -440,7 +558,7 @@ token.payload must contain all required claims
 token signature must match the expected secret and algorithm
 ```
 
-## 6.4. What the project validates after decode
+### 6.4. What the project validates after decode
 
 After PyJWT successfully decodes the token, the project validates that the claims have a usable shape.
 
@@ -449,8 +567,8 @@ The verifier checks that:
 * `sub` is a non-empty string
 * `iss` is a non-empty string
 * `aud` is a non-empty string
-* `iat` is an integer
-* `exp` is an integer
+* `iat` is an integer and not a boolean
+* `exp` is an integer and not a boolean
 * `roles` is a non-empty list or tuple
 * every role is a non-empty string
 * `name`, when provided, is a non-empty string
@@ -460,13 +578,13 @@ Reason:
 
 A claim being present is not enough.
 
-The API also needs claims to have a shape that the application can safely use.
+The API also needs claims to have a shape that later layers can safely use.
 
-## 6.5. VerifiedJwtClaims
+### 6.5. VerifiedJwtClaims
 
 `VerifiedJwtClaims` represents JWT claims after successful verification.
 
-Conceptual fields:
+Fields:
 
 ```text
 subject
@@ -496,24 +614,69 @@ VerifiedJwtClaims(
 
 This object is intentionally not the same as `CurrentPrincipal`.
 
-It still contains JWT-oriented technical information such as issuer, audience, issued-at and expiration.
+It still contains JWT-oriented technical information such as:
 
-The next layer translates verified claims into the runtime actor model.
+* issuer
+* audience
+* issued-at time
+* expiration time
+
+The HTTP composition layer translates verified claims into the runtime actor model.
+
+### 6.6. Invalid token vs invalid verifier configuration
+
+The verifier distinguishes between two categories.
+
+Invalid client credential:
+
+```text
+TokenVerificationError
+```
+
+Examples:
+
+* invalid signature
+* expired token
+* wrong issuer
+* wrong audience
+* missing claim
+* invalid claim shape
+
+Invalid server configuration:
+
+```text
+TokenVerifierConfigurationError
+```
+
+Examples:
+
+* missing JWT secret
+* JWT secret shorter than 32 bytes
+
+This distinction must remain visible to the HTTP layer:
+
+```text
+TokenVerificationError
+    -> 401 Unauthorized
+
+TokenVerifierConfigurationError
+    -> 500 Internal Server Error
+```
 
 ---
 
 ## 7. Current principal
 
-## 7.1. Definition
+### 7.1. Definition
 
 `CurrentPrincipal` is the trusted runtime identity of the caller after successful authentication.
 
-Conceptual fields:
+Current fields:
 
 ```text
 subject
-display_name
 roles
+display_name
 ```
 
 Example:
@@ -521,12 +684,12 @@ Example:
 ```text
 CurrentPrincipal(
     subject="clinician-001",
-    display_name="Demo Clinician",
     roles=("clinician",),
+    display_name="Demo Clinician",
 )
 ```
 
-## 7.2. VerifiedJwtClaims vs CurrentPrincipal
+### 7.2. VerifiedJwtClaims vs CurrentPrincipal
 
 `VerifiedJwtClaims` answers:
 
@@ -540,19 +703,39 @@ What did the verified JWT contain?
 Who is the trusted actor for this request?
 ```
 
-Example transformation:
+Current transformation:
 
 ```text
-VerifiedJwtClaims.subject -> CurrentPrincipal.subject
-VerifiedJwtClaims.name    -> CurrentPrincipal.display_name
-VerifiedJwtClaims.roles   -> CurrentPrincipal.roles
+VerifiedJwtClaims.subject
+    -> CurrentPrincipal.subject
+
+VerifiedJwtClaims.roles
+    -> CurrentPrincipal.roles
+
+VerifiedJwtClaims.name
+    -> CurrentPrincipal.display_name
 ```
 
-The application should not need to know about issuer, audience or JWT expiration after the principal has been established.
+The application does not need to know about issuer, audience, JWT expiration, or PyJWT after the principal has been established.
 
-Those are token verification concerns.
+Those are token-verification concerns.
 
-## 7.3. Principal vs Patient
+### 7.3. CurrentPrincipal invariants
+
+`CurrentPrincipal` validates its basic invariants.
+
+Rules:
+
+* `subject` must be a non-empty string
+* `roles` must be a non-empty tuple
+* every role must be a non-empty string
+* `display_name` must be `None` or a non-empty string
+
+The principal is immutable.
+
+Its identity and roles must not change accidentally during a request.
+
+### 7.4. Principal vs patient
 
 A principal is not a patient.
 
@@ -571,7 +754,7 @@ The clinician may read the patient's data if authorization allows it.
 
 The two concepts must remain separate.
 
-## 7.4. Principal vs database user
+### 7.5. Principal vs database user
 
 The MVP does not introduce database-backed users.
 
@@ -579,11 +762,75 @@ The principal is derived from a validated token.
 
 Database-backed users, user registration, password login, and user lifecycle management are deferred.
 
+### 7.6. Current HTTP dependency
+
+The current-principal HTTP dependency is implemented in:
+
+```text
+apps/api/src/fhir_gateway/interfaces/http/dependencies/security.py
+```
+
+Its responsibility is to:
+
+* extract Bearer credentials from the HTTP request
+* retrieve the configured `JwtTokenVerifier` from `app.state`
+* verify the raw JWT
+* translate `VerifiedJwtClaims` into `CurrentPrincipal`
+* translate invalid or missing credentials into `AuthenticationError`
+
+The dependency does not:
+
+* check permissions
+* map roles to permissions
+* create audit events
+* issue tokens
+* create user sessions
+* access the database
+
+Conceptual flow:
+
+```text
+get_current_principal()
+    -> HTTPBearer(auto_error=False)
+    -> get_jwt_token_verifier(request)
+    -> JwtTokenVerifier.verify(raw_token)
+    -> CurrentPrincipal
+```
+
+`TokenVerificationError` is translated to `AuthenticationError`.
+
+`TokenVerifierConfigurationError` is not translated to `AuthenticationError`, because invalid verifier configuration is a server problem, not a client-credential problem.
+
+### 7.7. Request-scoped lifecycle
+
+A new `CurrentPrincipal` is built for each successfully authenticated request.
+
+It is not stored in `app.state`.
+
+Correct lifecycle:
+
+```text
+Request starts
+    -> token is verified
+    -> CurrentPrincipal is created
+    -> endpoint and dependencies use principal
+    -> request ends
+    -> principal is released
+```
+
+Incorrect design:
+
+```text
+app.state.current_principal
+```
+
+That would incorrectly mix identities between concurrent users and requests.
+
 ---
 
 ## 8. Roles
 
-## 8.1. Role list
+### 8.1. Role list
 
 The MVP defines these initial roles:
 
@@ -593,7 +840,7 @@ auditor
 admin
 ```
 
-## 8.2. `clinician`
+### 8.2. `clinician`
 
 A `clinician` represents a clinical user allowed to read ordinary clinical data in the MVP.
 
@@ -607,11 +854,11 @@ encounter:read
 bundle:export
 ```
 
-## 8.3. `auditor`
+### 8.3. `auditor`
 
 An `auditor` represents a user allowed to inspect audit events.
 
-Expected permissions:
+Expected permission:
 
 ```text
 audit:read
@@ -619,7 +866,7 @@ audit:read
 
 An auditor does not automatically receive clinical read permissions.
 
-## 8.4. `admin`
+### 8.4. `admin`
 
 An `admin` represents a broad MVP administrator.
 
@@ -638,11 +885,26 @@ In this MVP, `admin` means full read access to the defined MVP operations.
 
 It does not represent unrestricted production superuser behavior.
 
+### 8.5. Unknown roles
+
+The behavior for unknown roles will be defined during RBAC implementation.
+
+The recommended safe behavior is:
+
+```text
+unknown role
+    -> grants no permissions
+```
+
+An unknown role must not be interpreted as administrator access.
+
 ---
 
 ## 9. Permissions and RBAC
 
-## 9.1. Permission list
+Current implementation status: **planned for the next Phase 4 security sub-issue**
+
+### 9.1. Permission list
 
 Initial MVP permissions:
 
@@ -655,7 +917,7 @@ bundle:export
 audit:read
 ```
 
-## 9.2. Role-to-permission mapping
+### 9.2. Role-to-permission mapping
 
 Initial mapping:
 
@@ -665,7 +927,7 @@ Initial mapping:
 | `auditor`   | `audit:read`                                                                                          |
 | `admin`     | `patient:read`, `observation:read`, `condition:read`, `encounter:read`, `bundle:export`, `audit:read` |
 
-## 9.3. Permission checks
+### 9.3. Permission checks
 
 Endpoints should require permissions, not raw roles.
 
@@ -693,11 +955,24 @@ if "clinician" in principal.roles
 
 Instead, it should rely on centralized authorization helpers.
 
+### 9.4. Current status
+
+The principal already carries validated roles.
+
+The following pieces do not exist yet:
+
+* role-to-permission mapping implementation
+* permission resolution
+* reusable permission dependency
+* authorization-specific exception
+* `403 Forbidden` handler
+* protected production endpoints
+
 ---
 
 ## 10. Authorization flow
 
-## 10.1. Authentication vs authorization
+### 10.1. Authentication vs authorization
 
 Authentication answers:
 
@@ -711,19 +986,21 @@ Authorization answers:
 Are you allowed to do this?
 ```
 
-## 10.2. `401 Unauthorized`
+### 10.2. `401 Unauthorized`
 
 Use `401 Unauthorized` when the API cannot establish a valid identity.
 
 Examples:
 
 * missing token
+* unsupported authentication scheme
 * malformed token
 * invalid signature
 * expired token
 * wrong issuer
 * wrong audience
 * missing required claims
+* invalid claim shapes
 
 Meaning:
 
@@ -731,7 +1008,9 @@ Meaning:
 The caller has not provided valid credentials.
 ```
 
-## 10.3. `403 Forbidden`
+This behavior is implemented.
+
+### 10.3. `403 Forbidden`
 
 Use `403 Forbidden` when the API knows who the caller is but the caller lacks permission.
 
@@ -759,18 +1038,36 @@ then the API should return:
 403 Forbidden
 ```
 
-## 10.4. Simple rule
+This behavior is not implemented yet.
+
+### 10.4. Simple rule
 
 ```text
 401 = no valid identity
 403 = valid identity, insufficient permission
 ```
 
+### 10.5. Intended authorization dependency flow
+
+The intended flow is:
+
+```text
+protected endpoint
+    -> permission dependency
+        -> get_current_principal()
+            -> CurrentPrincipal
+        -> resolve principal permissions
+        -> check required permission
+            -> allow request
+            or
+            -> 403 Forbidden
+```
+
 ---
 
 ## 11. Public vs protected endpoints
 
-## 11.1. Public endpoints
+### 11.1. Public endpoints
 
 Current public endpoint:
 
@@ -780,9 +1077,16 @@ GET /health
 
 The health endpoint is technical.
 
-It does not expose clinical data, audit data, or application use-cases.
+It does not expose:
 
-## 11.2. Protected clinical endpoints
+* clinical data
+* audit data
+* application use-cases
+* database contents
+
+It does not execute the current-principal dependency.
+
+### 11.2. Protected clinical endpoints
 
 Future clinical endpoints should require authentication and authorization by default.
 
@@ -797,7 +1101,7 @@ GET /patients/{patient_id}/bundle
 
 These endpoints should not be public by default.
 
-## 11.3. Protected audit endpoints
+### 11.3. Protected audit endpoints
 
 Future audit endpoints should require authentication and authorization.
 
@@ -813,20 +1117,31 @@ Expected permission:
 audit:read
 ```
 
+### 11.4. Authentication is not applied globally
+
+The current security dependency is reusable but is not applied globally to the FastAPI application.
+
+Reason:
+
+* `/health` must remain public
+* documentation routes may remain public during the MVP
+* each protected operation should declare its security requirement explicitly
+* future permission dependencies will differ by endpoint
+
 ---
 
 ## 12. Demo token endpoint
 
-## 12.1. Purpose
+### 12.1. Purpose
 
-A local/demo token issuing endpoint is planned for Phase 5.
+A local/demo token-issuing endpoint is planned for Phase 5.
 
 It allows the UI and integration tests to obtain a Bearer JWT without implementing:
 
 * database-backed users
 * password login
 * user registration
-* sessions
+* server-side sessions
 * refresh tokens
 * external OAuth/OIDC
 * a production identity provider
@@ -843,18 +1158,23 @@ Intended flow:
 UI
     -> POST /auth/demo-token
         -> receives demo JWT
-            -> calls protected endpoints with Authorization: Bearer <token>
+            -> calls protected endpoints
+               with Authorization: Bearer <token>
 ```
 
-## 12.2. Production boundary
+### 12.2. Production boundary
 
-The demo token endpoint must be limited to local/test/demo usage.
+The demo token endpoint must be limited to:
+
+* local
+* test
+* demo/development usage
 
 It must be disabled or rejected in production.
 
 This endpoint is an MVP convenience, not production authentication.
 
-## 12.3. Relationship to Phase 4
+### 12.3. Relationship to Phase 4
 
 Phase 4 builds the security foundation:
 
@@ -866,21 +1186,21 @@ RBAC
 audit actor derivation
 ```
 
-Phase 5 can use that foundation to expose a demo token endpoint and protected clinical endpoints.
+Phase 5 can use that foundation to expose:
 
-The demo token endpoint is therefore not part of Sub-issue D.
+* demo token endpoint
+* protected clinical endpoints
+* protected audit endpoints
 
-Sub-issue D verifies tokens.
-
-The demo token endpoint issues tokens.
-
-Those are related but separate responsibilities.
+Token verification and token issuance are separate responsibilities.
 
 ---
 
 ## 13. Audit actor derivation
 
-## 13.1. Trusted actor source
+Current implementation status: **planned for later Phase 4 security work**
+
+### 13.1. Trusted actor source
 
 Future audit event creation must derive the audit actor from trusted runtime context.
 
@@ -897,7 +1217,7 @@ CurrentPrincipal.subject = "clinician-001"
 AuditEvent.agent = "clinician-001"
 ```
 
-## 13.2. Request body must not define audit actor
+### 13.2. Request body must not define audit actor
 
 Request bodies must not be allowed to define the audit actor.
 
@@ -921,7 +1241,7 @@ validated token
             -> AuditEvent.agent
 ```
 
-## 13.3. Future actor sources
+### 13.3. Future actor sources
 
 Future non-human actors may include:
 
@@ -930,15 +1250,21 @@ Future non-human actors may include:
 * local/demo identity
 * AI-assisted workflow identity
 
-Those must still be trusted runtime identities, not arbitrary request body values.
+Those must still be trusted runtime identities, not arbitrary request-body values.
+
+### 13.4. Current limitation
+
+`CurrentPrincipal` exists, but no production audit write-side dependency currently consumes it.
+
+Audit actor wiring will be introduced in a later Phase 4 sub-issue.
 
 ---
 
 ## 14. Security error behavior
 
-## 14.1. Standard API error envelope
+### 14.1. Standard API error envelope
 
-Security errors must use the standard API error response envelope:
+Security errors use the standard API error response envelope:
 
 ```json
 {
@@ -954,12 +1280,18 @@ Security errors must use the standard API error response envelope:
 
 The API error envelope is defined in the HTTP/interface layer.
 
-## 14.2. Authentication error example
+### 14.2. Authentication error example
 
 Status:
 
 ```text
 401 Unauthorized
+```
+
+Headers:
+
+```text
+WWW-Authenticate: Bearer
 ```
 
 Body:
@@ -968,7 +1300,7 @@ Body:
 {
   "error": {
     "code": "unauthorized",
-    "message": "Authentication credentials were missing or invalid.",
+    "message": "Authentication credentials are missing or invalid.",
     "field": null,
     "resource": null,
     "identifier": null
@@ -976,15 +1308,21 @@ Body:
 }
 ```
 
-## 14.3. Authorization error example
+This response is used for missing or invalid authentication credentials.
 
-Status:
+The response deliberately does not reveal the detailed token-verification failure.
+
+### 14.3. Authorization error example
+
+Current implementation status: **planned**
+
+Expected status:
 
 ```text
 403 Forbidden
 ```
 
-Body:
+Expected body:
 
 ```json
 {
@@ -998,45 +1336,113 @@ Body:
 }
 ```
 
-## 14.4. Application and domain error relationship
+### 14.4. JWT verifier configuration error
 
-The same API error envelope is also used for application/domain errors exposed through HTTP.
-
-Examples:
+Status:
 
 ```text
-DomainValidationError      -> 400 Bad Request
-ApplicationValidationError -> 400 Bad Request
-ApplicationNotFoundError   -> 404 Not Found
-Unexpected exception       -> 500 Internal Server Error
+500 Internal Server Error
 ```
 
-## 14.5. Current status
+Body:
 
-The standard API error envelope already exists.
+```json
+{
+  "error": {
+    "code": "internal_server_error",
+    "message": "Internal server error.",
+    "field": null,
+    "resource": null,
+    "identifier": null
+  }
+}
+```
 
-Security-specific HTTP error mapping is not wired yet.
+The real internal reason is logged.
 
-Token verification errors currently remain infrastructure errors.
+The client must not receive details such as:
 
-The authentication HTTP dependency will later translate invalid/missing authentication into `401 Unauthorized`.
+```text
+JWT secret is not configured.
+JWT secret must be at least 32 bytes long.
+```
 
-The authorization helper will later translate insufficient permissions into `403 Forbidden`.
+### 14.5. Current security-related mappings
+
+Current mappings:
+
+```text
+AuthenticationError             -> 401 Unauthorized
+TokenVerifierConfigurationError -> 500 Internal Server Error
+```
+
+`TokenVerificationError` is translated by the HTTP authentication dependency into `AuthenticationError`.
+
+`TokenVerifierConfigurationError` is not translated into `AuthenticationError`.
+
+Reason:
+
+```text
+TokenVerificationError:
+    the client credentials are invalid
+    -> 401 Unauthorized
+
+TokenVerifierConfigurationError:
+    the server is misconfigured
+    -> 500 Internal Server Error
+```
+
+Authorization-specific `403 Forbidden` mapping is not implemented yet.
+
+### 14.6. Relationship with application and domain errors
+
+The same API error envelope is used for application/domain errors exposed through HTTP.
+
+Current mappings:
+
+```text
+DomainValidationError           -> 400 Bad Request
+ApplicationValidationError      -> 400 Bad Request
+ApplicationNotFoundError        -> 404 Not Found
+AuthenticationError             -> 401 Unauthorized
+TokenVerifierConfigurationError -> 500 Internal Server Error
+Unexpected Exception            -> 500 Internal Server Error
+```
+
+### 14.7. Error flow
+
+Conceptual error flow:
+
+```text
+dependency / endpoint / use-case / domain / infrastructure
+    -> raises exception
+        -> exception propagates to FastAPI
+            -> FastAPI selects registered handler
+                -> handler calls _build_error_response()
+                    -> ApiError
+                        -> ApiErrorResponse
+                            -> JSONResponse
+                                -> client
+```
+
+Exception handlers are registered when the application starts.
+
+They are not registered once per request.
 
 ---
 
 ## 15. Settings
 
-## 15.1. Implemented security settings
+### 15.1. Implemented security settings
 
 The following Phase 4 security settings are implemented:
 
-| Setting              | Environment variable              | Purpose                      |
-| -------------------- | --------------------------------- | ---------------------------- |
-| `auth_jwt_secret`    | `FHIR_GATEWAY_AUTH_JWT_SECRET`    | Local/MVP JWT signing secret |
-| `auth_jwt_issuer`    | `FHIR_GATEWAY_AUTH_JWT_ISSUER`    | Expected token issuer        |
-| `auth_jwt_audience`  | `FHIR_GATEWAY_AUTH_JWT_AUDIENCE`  | Expected token audience      |
-| `auth_jwt_algorithm` | `FHIR_GATEWAY_AUTH_JWT_ALGORITHM` | Expected JWT algorithm       |
+| Setting              | Environment variable              | Purpose                                       |
+| -------------------- | --------------------------------- | --------------------------------------------- |
+| `auth_jwt_secret`    | `FHIR_GATEWAY_AUTH_JWT_SECRET`    | Local/MVP JWT signing and verification secret |
+| `auth_jwt_issuer`    | `FHIR_GATEWAY_AUTH_JWT_ISSUER`    | Expected token issuer                         |
+| `auth_jwt_audience`  | `FHIR_GATEWAY_AUTH_JWT_AUDIENCE`  | Expected token audience                       |
+| `auth_jwt_algorithm` | `FHIR_GATEWAY_AUTH_JWT_ALGORITHM` | Expected JWT algorithm                        |
 
 Current defaults:
 
@@ -1047,35 +1453,73 @@ auth_jwt_audience  = "fhir-gateway-api"
 auth_jwt_algorithm = "HS256"
 ```
 
-## 15.2. Secret handling rule
+### 15.2. Secret-handling rule
 
 Secrets must not be committed to the repository.
 
 The local/demo signing secret should be provided through environment-backed settings.
 
-`auth_jwt_secret` intentionally defaults to `None` to avoid committing a usable signing secret to the repository.
+`auth_jwt_secret` intentionally defaults to `None` to avoid committing a usable signing secret.
 
 The verifier requires a configured JWT secret before verifying tokens.
 
 For HS256, the current verifier rejects secrets shorter than 32 bytes.
 
-Production secrets should eventually come from a proper secrets management strategy.
+Production secrets should eventually come from a proper secrets-management strategy.
 
-## 15.3. Current implementation status
+### 15.3. Current application composition
 
-These security settings are implemented as part of Sub-issue D.
+The FastAPI application creates a configured `JwtTokenVerifier` during application startup and stores it in:
 
-The verifier currently uses these settings conceptually, but HTTP dependency wiring has not been introduced yet.
+```text
+app.state.jwt_token_verifier
+```
 
-That wiring belongs to the next security sub-issue.
+The HTTP security dependency retrieves this verifier from the current request application state.
+
+Conceptual flow:
+
+```text
+Settings
+    -> JwtTokenVerifier
+        -> app.state.jwt_token_verifier
+            -> get_current_principal()
+```
+
+The verifier does not validate a token during application startup.
+
+Token verification occurs when a protected request provides a Bearer JWT.
+
+### 15.4. Application startup with missing secret
+
+The application can start when:
+
+```text
+auth_jwt_secret = None
+```
+
+Reason:
+
+* `/health` remains public
+* token verification is not performed during startup
+* protected-request verification will identify invalid configuration
+
+When a protected request reaches a verifier without a valid secret:
+
+```text
+TokenVerifierConfigurationError
+    -> 500 Internal Server Error
+```
+
+This behavior keeps public technical endpoints available while still treating invalid security configuration as a server failure for protected operations.
 
 ---
 
 ## 16. Testing strategy
 
-## 16.1. Token verification tests
+### 16.1. Token-verification tests
 
-Token verification tests currently cover:
+Token-verification tests cover:
 
 * valid token
 * missing token
@@ -1087,11 +1531,11 @@ Token verification tests currently cover:
 * wrong issuer
 * wrong audience
 * missing required claim
-* invalid `sub`, `iss`, and `aud` shape
-* invalid `iat` and `exp` shape
+* invalid `sub`, `iss`, and `aud` shapes
+* invalid `iat` and `exp` shapes
 * invalid `roles` shape
 * empty roles
-* invalid optional `name` and `email` shape
+* invalid optional `name` and `email` shapes
 * missing optional `name` and `email`
 
 Expected behavior:
@@ -1102,24 +1546,50 @@ invalid token -> TokenVerificationError
 bad config    -> TokenVerifierConfigurationError
 ```
 
-## 16.2. Authentication tests
+### 16.2. CurrentPrincipal tests
 
-Authentication dependency tests should cover:
+Current-principal tests cover:
 
+* valid principal
+* missing optional display name
+* immutability
+* invalid subject
+* non-tuple roles
+* empty roles
+* invalid role values
+* invalid display name
+
+Expected behavior:
+
+```text
+valid identity data   -> CurrentPrincipal
+invalid identity data -> ApplicationValidationError
+```
+
+### 16.3. Authentication dependency tests
+
+Authentication dependency tests cover:
+
+* retrieval of the application-scoped JWT verifier
 * missing `Authorization` header
-* malformed `Authorization` header
-* unsupported scheme
+* unsupported authentication scheme
 * invalid token
+* token with invalid signature
 * valid token
+* construction of expected `CurrentPrincipal`
+* JWT verifier configuration error
 
 Expected behavior:
 
 ```text
 missing/invalid token -> 401 unauthorized
 valid token           -> CurrentPrincipal
+bad verifier config   -> 500 internal_server_error
 ```
 
-## 16.3. Authorization tests
+The tests use a test-only protected endpoint to exercise FastAPI dependency resolution without adding a production endpoint solely for authentication testing.
+
+### 16.4. Authorization tests
 
 Authorization tests should cover:
 
@@ -1128,6 +1598,8 @@ Authorization tests should cover:
 * unknown role
 * multiple roles
 * admin permissions
+* repeated permissions
+* immutable permission representation where applicable
 
 Expected behavior:
 
@@ -1136,28 +1608,141 @@ missing permission -> 403 forbidden
 allowed permission -> request continues
 ```
 
-## 16.4. Audit actor tests
+These tests belong to the upcoming RBAC sub-issue.
+
+### 16.5. Audit actor tests
 
 Audit actor tests should cover:
 
 * audit actor comes from `CurrentPrincipal.subject`
 * request body cannot override audit actor
 * audit actor derivation is stable and explicit
+* system actors are distinguishable from human actors if introduced
 
-## 16.5. Error envelope tests
+### 16.6. Error-envelope tests
 
-Security errors should reuse the standard API error envelope.
-
-Expected tests:
+Security error tests currently verify:
 
 ```text
-401 -> {"error": {...}}
-403 -> {"error": {...}}
+401 -> standard error envelope
+401 -> WWW-Authenticate: Bearer
+500 verifier configuration -> standard generic envelope
+500 verifier configuration -> internal details are hidden
 ```
+
+Expected future tests:
+
+```text
+403 -> standard error envelope
+```
+
+### 16.7. Architecture boundary tests
+
+Architecture tests should guarantee that:
+
+* domain does not import FastAPI
+* application does not import FastAPI
+* domain does not import PyJWT
+* application does not import PyJWT
+* domain does not import SQLAlchemy
+* application does not import SQLAlchemy
 
 ---
 
-## 17. MVP limitations
+## 17. Security architecture and object lifecycles
+
+### 17.1. FastAPI application lifecycle
+
+The FastAPI application is created when the server process starts.
+
+Conceptually:
+
+```text
+Uvicorn
+    -> imports main.py
+        -> app = create_app()
+```
+
+The same application instance processes multiple requests.
+
+It is not recreated for each endpoint call.
+
+### 17.2. Application-scoped security objects
+
+The following security object is application-scoped:
+
+```text
+JwtTokenVerifier
+```
+
+It is created during `create_app()` and stored in:
+
+```text
+app.state.jwt_token_verifier
+```
+
+It is safe to share because it:
+
+* does not contain request credentials
+* does not contain the current user
+* stores only verifier configuration
+* is effectively stateless between verifications
+
+### 17.3. Request-scoped security objects
+
+The following objects are request-scoped:
+
+```text
+HTTPAuthorizationCredentials
+VerifiedJwtClaims
+CurrentPrincipal
+```
+
+They belong only to one HTTP request.
+
+They must not be stored globally or in `app.state`.
+
+### 17.4. Object lifecycle table
+
+| Object              | Lifecycle                   | Shared?                 |
+| ------------------- | --------------------------- | ----------------------- |
+| FastAPI application | Server-process lifetime     | Yes, within one process |
+| Settings            | Application lifetime        | Yes                     |
+| JwtTokenVerifier    | Application lifetime        | Yes                     |
+| HTTP Request        | One HTTP call               | No                      |
+| Bearer credentials  | One protected HTTP call     | No                      |
+| VerifiedJwtClaims   | One authenticated HTTP call | No                      |
+| CurrentPrincipal    | One authenticated HTTP call | No                      |
+
+### 17.5. Multiple workers
+
+If Uvicorn runs several worker processes:
+
+```text
+Worker 1 -> FastAPI app 1 -> JwtTokenVerifier 1
+Worker 2 -> FastAPI app 2 -> JwtTokenVerifier 2
+Worker 3 -> FastAPI app 3 -> JwtTokenVerifier 3
+```
+
+Each process owns its own application-scoped objects.
+
+No application object is shared directly between operating-system processes.
+
+### 17.6. Development reload
+
+When Uvicorn runs with:
+
+```text
+--reload
+```
+
+a source-code change may restart the application process.
+
+The old FastAPI application instance is discarded and a new one is created.
+
+---
+
+## 18. MVP limitations
 
 The MVP security model deliberately does not implement:
 
@@ -1167,7 +1752,7 @@ The MVP security model deliberately does not implement:
 * key rotation
 * refresh tokens
 * token revocation
-* session management
+* server-side authentication session management
 * user registration
 * password login
 * database-backed users
@@ -1182,9 +1767,11 @@ These limitations are intentional.
 
 The MVP goal is to create a clean, testable, extensible security foundation without over-building production identity infrastructure too early.
 
+The existence of JWT authentication does not mean the project is production-security complete.
+
 ---
 
-## 18. Post-MVP backlog references
+## 19. Post-MVP backlog references
 
 Deferred security hardening and expansion items include:
 
@@ -1214,7 +1801,72 @@ BACKLOG / FUTURE-AI / AI-READY / Add security-aware audit context for future AI-
 
 ---
 
-## 19. Related ADRs
+## 20. UML documentation
+
+### 20.1. Current Phase 4 diagrams
+
+Current error-handling diagrams may be stored in:
+
+```text
+docs/architecture/uml/error-handling/
+```
+
+Suggested files:
+
+```text
+http-error-handling-sequence.puml
+http-error-handling-activity.puml
+```
+
+### 20.2. Purpose
+
+The sequence diagram explains:
+
+```text
+who calls whom
+in what order
+where an exception is raised
+how it propagates
+which handler is selected
+how the JSON response is built
+```
+
+The activity diagram explains:
+
+```text
+which response is selected
+for each exception type
+```
+
+### 20.3. Living-documentation rule
+
+The current diagrams must be updated when Phase 4 introduces:
+
+* authorization exception
+* `403 Forbidden`
+* permission dependencies
+* audit actor wiring
+* additional security-related error mappings
+
+They must also be reviewed during Phase 5 when real endpoints introduce:
+
+* path-parameter validation
+* query-parameter validation
+* request-body validation
+* framework-generated `422` responses
+* endpoint-specific not-found flows
+* persistence failures
+* audit recording flows
+
+### 20.4. Definitive post-Phase 5 UML set
+
+The definitive architecture and runtime-flow UML set should be created after Phase 5, when the first protected clinical and audit endpoints exist.
+
+That set should be based on implemented code rather than speculative interactions.
+
+---
+
+## 21. Related ADRs
 
 Security model:
 
@@ -1242,7 +1894,7 @@ docs/adr/0013-centralized-runtime-configuration.md
 
 ---
 
-## 20. Summary
+## 22. Summary
 
 The MVP security model is intentionally simple:
 
@@ -1262,19 +1914,30 @@ The currently implemented security foundation covers:
 JWT settings
     -> JwtTokenVerifier
         -> VerifiedJwtClaims
+            -> CurrentPrincipal
 ```
 
-The current project is still in Phase 4 security foundation work.
-
-The API does not yet authenticate HTTP requests end-to-end.
-
-The next security step is to translate:
+The HTTP authentication dependency is implemented:
 
 ```text
 Authorization: Bearer <token>
-    -> JwtTokenVerifier.verify(token)
-        -> VerifiedJwtClaims
-            -> CurrentPrincipal
+    -> HTTPBearer(auto_error=False)
+        -> JwtTokenVerifier.verify(token)
+            -> VerifiedJwtClaims
+                -> CurrentPrincipal
+```
+
+The API can now authenticate a request through a reusable dependency, but production clinical and audit endpoints do not exist yet.
+
+The next security step is RBAC authorization:
+
+```text
+CurrentPrincipal.roles
+    -> permissions
+        -> permission check
+            -> allow request
+            or
+            -> 403 Forbidden
 ```
 
 Security features must not be documented as production-grade until the corresponding hardening backlog items are implemented.

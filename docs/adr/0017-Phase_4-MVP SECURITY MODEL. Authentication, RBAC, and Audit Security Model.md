@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -59,7 +59,7 @@ These capabilities are deferred to post-MVP backlog items referenced at the end 
 
 The API will use:
 
-```
+```text
 Authorization: Bearer <token>
 ```
 
@@ -82,7 +82,7 @@ This means the MVP does not simply accept arbitrary headers or mock users. It st
 
 For the MVP, symmetric signing is acceptable:
 
-```
+```text
 HS256
 ```
 
@@ -96,7 +96,7 @@ A later production-grade version should migrate to asymmetric verification with 
 
 The MVP JWT should include at least:
 
-```
+```text
 iss
 aud
 sub
@@ -107,7 +107,7 @@ roles
 
 Recommended optional claims:
 
-```
+```text
 name
 email
 ```
@@ -126,7 +126,7 @@ After successful authentication, the API will create a trusted current-principal
 
 Conceptually, the principal contains:
 
-```
+```text
 subject
 display_name
 roles
@@ -148,7 +148,7 @@ The MVP will use a deliberately small role model.
 
 Initial roles:
 
-```
+```text
 clinician
 auditor
 admin
@@ -160,7 +160,7 @@ A clinician can read ordinary clinical data exposed by the API.
 
 Expected permissions:
 
-```
+```text
 patient:read
 observation:read
 condition:read
@@ -174,7 +174,7 @@ An auditor can read audit events.
 
 Expected permissions:
 
-```
+```text
 audit:read
 ```
 
@@ -186,7 +186,7 @@ An admin can perform all MVP read operations.
 
 Expected permissions:
 
-```
+```text
 patient:read
 observation:read
 condition:read
@@ -205,7 +205,7 @@ The MVP will use explicit permissions rather than checking role names directly i
 
 Initial permissions:
 
-```
+```text
 patient:read
 observation:read
 condition:read
@@ -218,7 +218,7 @@ Authorization should be expressed in terms of permissions.
 
 For example:
 
-```
+```text
 require_permission("patient:read")
 require_permission("audit:read")
 ```
@@ -233,13 +233,13 @@ Protected endpoints must require an authenticated principal.
 
 If no token is provided, or the token is invalid, the API should respond with:
 
-```
+```text
 401 Unauthorized
 ```
 
 If a valid principal is authenticated but lacks the required permission, the API should respond with:
 
-```
+```text
 403 Forbidden
 ```
 
@@ -257,7 +257,7 @@ The audit actor must not be accepted from arbitrary request payloads.
 
 For example:
 
-```
+```text
 current_principal.subject -> audit_event.agent
 ```
 
@@ -269,7 +269,7 @@ This design prevents clients from spoofing audit actors by sending arbitrary age
 
 The HTTP layer may provide dependencies such as:
 
-```
+```text
 get_current_principal()
 require_permission(...)
 get_current_audit_actor()
@@ -291,9 +291,9 @@ Routers must not manually instantiate security infrastructure.
 
 Security configuration should be centralized through the existing settings system.
 
-Potential MVP settings:
+MVP settings:
 
-```
+```text
 FHIR_GATEWAY_AUTH_JWT_SECRET
 FHIR_GATEWAY_AUTH_JWT_ISSUER
 FHIR_GATEWAY_AUTH_JWT_AUDIENCE
@@ -308,14 +308,16 @@ Local development may use a documented demo secret through `.env`, but productio
 
 Security failures must use consistent HTTP semantics:
 
-```
+```text
 401 Unauthorized
 403 Forbidden
 ```
 
-A full API error response envelope is still deferred unless Phase 4 explicitly introduces it.
+Phase 4 uses the shared API error response envelope introduced before the HTTP authentication and authorization dependencies.
 
-If no shared error envelope exists yet, Phase 4 should still ensure consistent status codes and predictable error messages for security failures.
+Authentication errors, authorization errors, and other project-owned HTTP errors must be translated centrally at the HTTP/interface boundary.
+
+The domain and application layers must remain independent from HTTP status codes and FastAPI response objects.
 
 ## MVP limitations
 

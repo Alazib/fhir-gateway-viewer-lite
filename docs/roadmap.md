@@ -32,13 +32,13 @@ This project is not a generic CRUD demo.
 It is built around common healthcare integration concerns:
 
 * **Resource-oriented clinical modeling** (`Patient`, `Observation`, `Condition`, `Encounter`, `AuditEvent`)
-* **Semantic coding** through clinical codes for observations and conditions, avoiding “free-text-only” clinical data
+* **Semantic coding** through clinical codes for observations and conditions, avoiding free-text-only clinical data
 * **Traceability** through audit events and role-based access patterns typically expected in regulated environments
 * **Synthetic data only**: no real patient data is used; the project is intended to rely on reproducible demo data and fixtures
 
 ### 1.2 Why this is also an AI Engineering project
 
-This project is not meant to become “just a chatbot on top of data”.
+This project is not meant to become just a chatbot on top of data.
 
 It is intended to become a serious **Applied AI Engineering** case by building AI features on top of:
 
@@ -49,16 +49,16 @@ It is intended to become a serious **Applied AI Engineering** case by building A
 * clear evaluation scenarios
 * safe and constrained behavior
 
-The AI layer is therefore treated as an **engineering extension of a solid system**, not as a gimmick added on top of an unstable base.
+The AI layer is therefore treated as an engineering extension of a solid system, not as a feature added on top of an unstable base.
 
 ### 1.3 What the application is useful for
 
 * Demonstrating how to design an API that mirrors healthcare interoperability patterns in a deliberately simplified FHIR-like way
 * Showcasing clean boundaries between domain, application use-cases, and infrastructure concerns
 * Providing a small EHR-style viewer to validate API behavior end-to-end
-* Serving as a practical base for extensions such as additional resources, export bundles, persistence adapters, and integration adapters
-* Providing a future base for **grounded AI features over structured patient data**
-* Demonstrating **AI Engineering** in a niche with strong professional value: health/interoperability
+* Serving as a practical base for additional resources, export bundles, persistence adapters, and integration adapters
+* Providing a future base for grounded AI features over structured patient data
+* Demonstrating AI Engineering in a niche with strong professional value: health/interoperability
 
 > Note: This is a portfolio/educational implementation. It does not claim compliance with any specific regulatory framework.
 
@@ -90,7 +90,6 @@ Build a project that demonstrates:
 * access auditing to clinical resources through `AuditEvent`
 * strong documentation and ADR discipline
 * future AI integration designed on top of:
-
   * structured synthetic data
   * reproducible evaluation scenarios
   * grounded responses over domain resources
@@ -110,22 +109,45 @@ Use this repository as a portfolio asset that signals strength in:
 
 ---
 
-## 3. Delivery strategy
+## 3. Delivery strategy and current status
 
-Work is organized as **phases**. Each phase may contain **sub-issues**, such as vertical slices or resource-specific tasks. Major technical decisions are documented as ADRs under `docs/adr/`.
+Work is organized as phases. Each phase may contain sub-issues, such as vertical slices or resource-specific tasks. Major technical decisions are documented as ADRs under `docs/adr/`.
 
 The delivery order intentionally prioritizes:
 
 1. a stable domain model
 2. an application layer around that domain
 3. an executable backend with persistence
-4. reproducible synthetic datasets
-5. a visible end-to-end viewer
-6. and only then an AI layer built on top of stable, structured, evaluable artifacts
+4. a security and audit foundation
+5. stable clinical HTTP endpoints
+6. reproducible synthetic datasets
+7. a visible end-to-end viewer
+8. hardening and portfolio packaging
+9. an AI layer built on top of stable, structured, evaluable artifacts
 
 This is deliberate: the project should first become a good software system, and then become a good AI-enabled system.
 
-The current project work is in **Phase 3 — Backend foundation**.
+Current project work:
+
+```text
+Phase 4 — Authentication, RBAC, audit trail, error contract, and security documentation
+```
+
+Current Phase 4 status:
+
+```text
+Completed:
+A. MVP security model ADR
+B. API error response envelope and initial error mappings
+C. Initial security README and API README security reference
+D. JWT settings and token verification foundation
+E. CurrentPrincipal and HTTP Bearer authentication dependency
+
+Next:
+F. RBAC permission model and authorization helpers
+```
+
+Phase 3 is complete.
 
 ---
 
@@ -133,20 +155,19 @@ The current project work is in **Phase 3 — Backend foundation**.
 
 ### Phase 1 — Domain modeling
 
+**Status:** Completed
+
 **Objective:** Define the clinical core without framework dependencies.
 
 Scope:
 
 * Domain entities:
-
   * `Patient`
   * `Observation`
   * `Condition`
   * `Encounter`
   * `AuditEvent`
-
 * Value objects:
-
   * `ResourceId`
   * `Identifier`
   * `HumanName`
@@ -155,9 +176,7 @@ Scope:
   * `Instant`
   * `Period`
   * `Reference`
-
 * Basic invariants:
-
   * identifier consistency
   * clinical coding structure
   * quantity structure
@@ -169,7 +188,6 @@ Scope:
 **Definition of Done**
 
 * Domain model documented:
-
   * `docs/architecture/001-value_objects_data_model.md`
   * `docs/architecture/002-entities_data_model.md`
 * Unit tests for key invariants
@@ -180,11 +198,11 @@ Scope:
 
 ### Phase 2 — Application architecture skeleton
 
+**Status:** Completed
+
 **Objective:** Build the application layer around the completed domain model using vertical slices and narrow application ports.
 
-The focus is to prepare the architecture around the domain so the backend can become executable in the next phase.
-
-Phase 2 intentionally does **not** start by designing broad generic repositories. Instead, it grows the application layer through real use-cases and lets abstractions emerge from repeated needs.
+Phase 2 intentionally does not start by designing broad generic repositories. It grows the application layer through real use-cases and lets abstractions emerge from repeated needs.
 
 Scope:
 
@@ -192,13 +210,11 @@ Scope:
 * Define use-case entry points with explicit orchestration boundaries
 * Model use-cases as classes exposing `execute()`
 * Define application-level errors
-* Define application result models only when the use-case output is not simply a domain resource or collection of domain resources
+* Define application result models only when a use-case output is not simply a domain resource or collection
 * Define narrow read-oriented ports required by each vertical slice
 * Avoid premature broad CRUD-style repositories
 * Test use-cases with in-memory implementations of their ports
-* Keep the application layer independent from FastAPI, SQLAlchemy, Pydantic, and concrete persistence details
-* Align project conventions with the actual codebase
-* Clean obvious structural inconsistencies that would hinder the next phase
+* Keep application independent from FastAPI, SQLAlchemy, Pydantic, and concrete persistence details
 
 Initial Phase 2 / Iteration 1 use-cases:
 
@@ -208,50 +224,49 @@ Initial Phase 2 / Iteration 1 use-cases:
 * `ExportPatientBundle`
 * `ListAuditEvents`
 
-Current application-layer principles:
+Application-layer principles:
 
 * Use-cases belong to `application/use_cases/`
 * Ports belong to `application/ports/`
 * Application models belong to `application/models/`
 * Application errors belong to `application/errors.py`
-* Ports should be named around capabilities or stable read patterns, not around speculative repositories
+* Ports are named around capabilities or stable read patterns
 * Returning domain entities directly is acceptable for simple list/search slices
-* Dedicated application result models are preferred when a use-case composes multiple resources into a new application-level concept
-* Search/list use-cases return empty collections when the query is valid but there are no matches
-* Get/detail use-cases raise application-level not-found errors when the requested target resource does not exist
+* Dedicated result models are preferred when a use-case composes multiple resources
+* Search/list use-cases return empty collections for valid queries without matches
+* Get/detail use-cases raise application-level not-found errors when the target does not exist
 
 **Definition of Done**
 
-* The post-domain project structure is clear and stable
 * Application-layer boundaries are defined
 * Initial use-cases are implemented as vertical slices
 * Narrow application ports are identified and tested
-* Application-layer tests are deterministic and do not depend on frameworks or persistence
-* Architectural conventions are coherent with the implemented domain
-* The project is ready to start the executable backend foundation without rethinking the structure again
+* Application tests are deterministic and framework-independent
+* Architectural conventions are coherent with the domain
+* The project is ready for executable backend work
 
 ---
 
 ### Phase 3 — Backend foundation
+
+**Status:** Completed
 
 **Objective:** Provide an executable backend skeleton with persistence and configuration.
 
 Scope:
 
 * FastAPI application structure
-* API configuration
-* logging
-* PostgreSQL persistence
-* SQLAlchemy base and database setup
-* SQLAlchemy ORM models
+* API configuration and logging
+* PostgreSQL persistence foundation
+* SQLAlchemy base, ORM models, engine, and session factory
 * Alembic migrations
-* DB session management
+* request-scoped database session management
 * timestamp strategy
 * logical deletion strategy
-* audit event persistence strategy
+* AuditEvent persistence strategy
 * ORM-to-domain mappers
-* concrete SQLAlchemy adapters implementing application ports
-* dependency wiring from infrastructure/API adapters to application use-cases
+* concrete SQLAlchemy read adapters
+* dependency wiring from infrastructure adapters to application use-cases
 * CI pipeline for linting and tests
 
 **Definition of Done**
@@ -260,58 +275,117 @@ Scope:
 * CI runs linting and tests
 * `/health` and `/docs` are available
 * Persistence infrastructure exists
-* SQLAlchemy ORM models exist for the MVP resources
-* Alembic migrations exist for the MVP persistence schema
-* ORM-to-domain mappers exist for the MVP resources
-* Concrete adapters implement the application ports defined in Phase 2
-* Framework and persistence dependencies remain outside the domain layer and outside application use-case logic
+* SQLAlchemy ORM models exist for MVP resources
+* Alembic migrations exist for the MVP schema
+* ORM-to-domain mappers exist
+* Concrete adapters implement Phase 2 ports
+* HTTP dependencies compose sessions, adapters, and use-cases
+* Framework and persistence dependencies remain outside domain and application
 
 ---
 
-### Phase 4 — Authentication, RBAC, and audit trail
+### Phase 4 — Authentication, RBAC, audit trail, error contract, and security documentation
 
-**Objective:** Implement security and traceability expectations early.
+**Status:** In progress
+
+**Objective:** Establish the professional MVP security, authorization, audit-write, and API error foundations required before exposing persistence-backed clinical endpoints.
 
 Scope:
 
-* JWT issuance and verification
-* basic role model
-* RBAC enforcement at the API/application boundary
-* audit event capture for access to patient data and exports
-* persisted audit events
-* audit querying for administrative visibility
+* MVP security model ADR
+* standard API error response envelope
+* centralized mapping of application, domain, authentication, authorization, and internal errors
+* dedicated security documentation
+* JWT runtime settings
+* local/MVP HS256 token verification
+* `VerifiedJwtClaims`
+* request-scoped `CurrentPrincipal`
+* reusable Bearer authentication dependency
+* explicit roles and permissions
+* independently testable RBAC policy
+* `403 Forbidden` authorization behavior
+* trusted audit actor derivation
+* audit write-side port and use-case foundation
+* reusable security and audit dependencies for later protected endpoints
+* architecture boundary tests
+* final Phase 4 documentation and quality-gate update
+
+Completed sub-issues:
+
+```text
+A. Define MVP security model ADR
+B. Define API error response envelope and initial security error mapping
+C. Create initial security README and API README security reference
+D. Add security settings and token verification foundation
+E. Add CurrentPrincipal and HTTP authentication dependency
+```
+
+Next sub-issue:
+
+```text
+F. Add RBAC permission model and authorization helpers
+```
+
+Remaining sequence:
+
+```text
+F. RBAC permission model and authorization helpers
+G. Audit write-side port and use-case foundation
+H. Security and audit dependency wiring for future protected endpoints
+I. Final API, security documentation, and quality-gate update
+```
+
+Important boundaries:
+
+* `/health` remains public.
+* Authentication is not applied globally.
+* No production clinical or audit router is introduced solely to test security.
+* Token verification belongs to infrastructure.
+* `CurrentPrincipal` and pure authorization policy belong outside FastAPI.
+* HTTP dependencies and HTTP error translation belong to the interface layer.
+* The audit actor comes from trusted runtime context, never from arbitrary request payloads.
+* Local/demo token issuing is deferred to Phase 5.
+* The AuditEvent persistence schema was delivered in Phase 3; Phase 4 adds the write-side and trusted-actor foundations.
 
 **Definition of Done**
 
-* Protected endpoints require valid JWT
-* RBAC rules are enforced and tested
-* Audit trail is persisted and queryable
-* Access to patient data and bundle export operations can be traced through `AuditEvent`
+* MVP security ADR is accepted
+* API error envelope exists and is documented
+* Authentication uses consistent `401 Unauthorized` behavior
+* Authorization uses consistent `403 Forbidden` behavior
+* JWT settings and verification are centralized
+* `CurrentPrincipal` exists and is request-scoped
+* Role/permission model exists
+* Authorization helpers are independently testable
+* Audit actor derivation uses trusted security context
+* Audit write-side application foundation exists
+* Reusable security/audit dependencies are available for Phase 5
+* Architecture boundaries are protected by tests
+* Documentation reflects the actual implementation
+* Ruff and pytest remain green
 
 ---
 
 ### Phase 5 — Clinical use-cases and endpoints
 
-**Objective:** Deliver minimal clinical value through stable API endpoints.
+**Status:** Planned
 
-Phase 5 exposes the first protected clinical and audit HTTP endpoints, using the security foundation introduced in Phase 4.
+**Objective:** Deliver minimal clinical value through stable, protected API endpoints.
 
----
+Phase 5 exposes the first protected clinical and audit HTTP endpoints using the security foundation introduced in Phase 4.
 
-### Scope
+Scope:
 
-* Local/demo token issuing endpoint for MVP and UI simulation
-* Patient search endpoint
-* Patient summary endpoint
-* Observation listing by code endpoint
+* local/demo token issuing endpoint for MVP and UI simulation
+* patient search endpoint
+* patient summary endpoint
+* observation listing by code endpoint
 * FHIR-like Bundle export endpoint
-* Audit listing endpoint
+* audit listing endpoint
 
-The demo token endpoint is intended only for local, test, or demo environments. It allows the UI and integration tests to obtain a Bearer JWT without implementing database-backed users, password login, external OAuth/OIDC, or a full authentication provider.
+The demo token endpoint is intended only for local, test, development, or demo usage. It allows the UI and integration tests to obtain a Bearer JWT without implementing database-backed users, password login, external OAuth/OIDC, or a full authentication provider.
 
----
-
-### Example intended flow
+Example intended flow:
 
 ```text
 UI
@@ -322,50 +396,43 @@ UI
 
 This endpoint must not be treated as production authentication.
 
----
+**Definition of Done**
 
-### Definition of Done
-
-* Demo token endpoint exists for local/test/demo usage
+* Demo token endpoint exists for non-production usage
 * Demo token endpoint is disabled or rejected in production
-* Demo token endpoint can issue tokens for the supported MVP roles
-* Protected endpoints require Bearer-token-based authentication
+* Demo token endpoint can issue tokens for supported MVP roles
+* Protected endpoints require Bearer authentication and permissions
 * Patient search endpoint exists
 * Patient summary endpoint exists
 * Observation listing by code endpoint exists
 * FHIR-like Bundle export endpoint exists
 * Audit listing endpoint exists
-* OpenAPI examples exist for the main endpoints
-* Integration tests cover the main clinical and audit endpoints
-* Integration tests can authenticate using demo-issued tokens or equivalent test fixtures
+* OpenAPI examples exist for main endpoints
+* Integration tests cover main clinical and audit endpoints
 * Application use-cases are wired through concrete adapters
-* Audit events are recorded on patient access and export operations
-* Endpoint contracts stay structured and predictable
+* Selected patient access and export operations record audit events
+* Endpoint contracts remain structured and predictable
 
----
+Security notes:
 
-### Security notes
+* The demo token endpoint is an MVP convenience, not a production identity system.
+* It must not introduce registration, password login, refresh tokens, sessions, or database-backed users.
+* Issued tokens must follow the Phase 4 claim contract.
+* Clinical and audit endpoints must use Phase 4 authentication and authorization.
+* Audit actors must be derived from `CurrentPrincipal`, not request bodies.
 
-* The demo token endpoint is an MVP/demo convenience, not a production identity system.
-* It must not introduce user registration, password login, refresh tokens, sessions, or database-backed users.
-* Issued demo tokens must still follow the Phase 4 JWT claim contract.
-* Clinical and audit endpoints must consume tokens through the Phase 4 authentication and authorization flow.
-* Audit actors must be derived from the trusted current principal, not from request bodies.
+AI-readiness notes:
 
----
-
-### AI-readiness notes
-
-* Endpoint outputs should stay strongly structured and predictable
-* Patient summary and export flows should be designed so they can later serve as grounding sources for AI features
-* Avoid endpoint contracts that mix presentation-only text with core structured evidence in ways that would make later grounding harder
-* Preserve resource identifiers, dates, codes, quantities, and references in outputs that may later support AI grounding
-
-
+* Endpoint outputs remain strongly structured and predictable.
+* Patient summary and export flows can later serve as grounding sources.
+* Presentation-only text must not replace structured clinical evidence.
+* Resource identifiers, dates, codes, quantities, and references are preserved.
 
 ---
 
 ### Phase 6 — Synthetic dataset and demo scenarios
+
+**Status:** Planned
 
 **Objective:** Make the project reproducible and easy to evaluate.
 
@@ -373,7 +440,6 @@ Scope:
 
 * Seed generator for patient cohorts
 * Scenario fixtures, for example:
-
   * diabetes HbA1c trend
   * hypertension
   * routine follow-up encounters
@@ -385,23 +451,20 @@ Scope:
 
 * One command seeds demo data
 * Demo scenarios are documented
-* Clear “run the demo” guide exists
-* Synthetic data is rich enough to demonstrate patient summary, observation filtering, timeline navigation, export, and audit behavior
+* Clear run-the-demo guide exists
+* Synthetic data demonstrates summary, observation filtering, timeline, export, and audit behavior
 
-**AI-readiness notes**
+AI-readiness notes:
 
-* Synthetic data should be richer than a minimal toy dataset
-* Include enough temporal variation, repeated observations, conditions, and encounters to support later:
-
-  * patient summary generation
-  * biomarker trend interpretation
-  * grounded question-answering
-  * structured search/evaluation scenarios
-* Prefer reproducible scenario cohorts over isolated dummy records
+* Synthetic data is richer than a minimal toy dataset.
+* It includes temporal variation, repeated observations, conditions, and encounters.
+* Scenario cohorts are reproducible and suitable for later evaluation.
 
 ---
 
 ### Phase 7 — EHR-lite viewer
+
+**Status:** Planned
 
 **Objective:** Provide a minimal UI to validate end-to-end behavior.
 
@@ -417,34 +480,26 @@ Scope:
 **Definition of Done**
 
 * Frontend consumes the real API
-* Basic UX states exist:
+* Loading, empty, error, and success states exist
+* Viewer demonstrates core clinical, interoperability, and traceability flows
+* UI remains small and reviewable as a portfolio artifact
 
-  * loading
-  * empty
-  * error
-  * success
-* Viewer demonstrates the core clinical, interoperability, and traceability flows
-* The UI remains small enough to be reviewable as a portfolio artifact
+AI-readiness notes:
 
-**AI-readiness notes**
-
-* The UI should keep a clean separation between:
-
-  * raw structured data
-  * derived summaries
-  * future AI-generated outputs
-* This phase should avoid UI decisions that would make later evidence-backed AI features awkward to present
-* Future AI-generated outputs should be visually traceable back to structured patient data
+* Raw structured data, derived summaries, and future AI output remain visually distinct.
+* Future AI output is traceable to structured patient evidence.
 
 ---
 
 ### Phase 8 — Hardening and portfolio packaging
 
+**Status:** Planned
+
 **Objective:** Polish the project for professional presentation.
 
 Scope:
 
-* Architecture overview documentation
+* architecture overview documentation
 * updated directory tree documentation
 * contract testing or OpenAPI snapshot checks
 * quality gates in CI
@@ -455,76 +510,75 @@ Scope:
 **Definition of Done**
 
 * Repository is review-ready
-* Documentation explains what the project demonstrates professionally
-* Setup and test execution are reproducible
-* Architectural decisions are discoverable through ADRs
-* The project can be evaluated without requiring real patient data or external clinical systems
+* Documentation explains professional value
+* Setup and tests are reproducible
+* ADRs make decisions discoverable
+* Evaluation requires no real patient data or external clinical systems
 
-**AI-readiness notes**
+AI-readiness notes:
 
-* Before adding AI, the project should already be stable enough to support evaluation and reproducibility
-* Observability, clean contracts, and reproducible scenarios are preferred over adding premature AI features on top of unstable foundations
+* The project is stable enough to support evaluation and reproducibility before AI is added.
+* Observability, clean contracts, and reproducible scenarios take priority over premature AI features.
 
 ---
 
 ### Phase 9 — Applied AI Engineering layer
 
+**Status:** Planned
+
 **Objective:** Add a focused AI Engineering layer on top of the completed MVP, using structured synthetic clinical data as the source of truth.
 
 Principles:
 
-* No generic “medical chatbot”
-* No autonomous multi-agent workflows as a first integration
+* No generic medical chatbot
+* No autonomous multi-agent workflow as the first integration
 * No AI feature without grounding, traceability, and evaluation
-* Prefer constrained, measurable features over broad but vague assistants
-* AI outputs must be backed by structured evidence from project resources
+* Prefer constrained, measurable features
+* AI output must be backed by structured project evidence
 
 Initial candidate features:
 
-* Grounded patient clinical summary generation
-* Patient-specific Q&A over structured evidence
-* Natural language to structured clinical search/filter translation
+* grounded patient clinical summary generation
+* patient-specific Q&A over structured evidence
+* natural-language-to-structured-search translation
 
 Recommended first feature:
 
-* **Grounded patient summary generation**
+**Grounded patient summary generation**
 
-  * Generate a clinically useful narrative summary from:
-
-    * patient summary data
-    * timeline items
-    * observations
-    * conditions
-    * encounters
-  * Preserve explicit grounding in the underlying structured resources
+Generate a clinically useful narrative summary from patient summary data, timeline items, observations, conditions, and encounters while preserving explicit grounding in the underlying resources.
 
 Possible second feature:
 
-* **Patient-specific Q&A with evidence**
+**Patient-specific Q&A with evidence**
 
-  * Example questions:
+Example questions:
 
-    * “How has HbA1c evolved?”
-    * “What active conditions does this patient have?”
-    * “What relevant events happened in the last year?”
-  * Responses must be backed by concrete domain resources, dates, codes, and resource ids
+* How has HbA1c evolved?
+* What active conditions does this patient have?
+* What relevant events happened in the last year?
+
+Responses must be backed by concrete resources, dates, codes, and resource IDs.
 
 Possible third feature:
 
-* **Natural language search to structured filters**
+**Natural language search to structured filters**
 
-  * Translate user queries such as:
+Translate queries such as:
 
-    * “patients with diabetes and worsening HbA1c”
-  * into safe structured filters over domain resources
+```text
+patients with diabetes and worsening HbA1c
+```
+
+into safe structured filters over domain resources.
 
 **Definition of Done**
 
-* At least one AI feature is implemented on top of the completed MVP
-* The AI output is grounded in project data rather than unconstrained free generation
+* At least one AI feature exists on top of the completed MVP
+* Output is grounded in project data
 * The feature has a repeatable evaluation strategy
-* Errors and limitations are explicitly documented
-* The feature is demonstrable as **Applied AI Engineering**, not just “LLM integration”
+* Errors and limitations are documented
+* The result demonstrates Applied AI Engineering, not only LLM integration
 
 ---
 

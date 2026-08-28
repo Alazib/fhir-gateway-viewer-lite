@@ -2,6 +2,9 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Mapping
 
+from fhir_gateway.application.security.current_principal import CurrentPrincipal
+from fhir_gateway.application.security.errors import PermissionDeniedError
+
 
 class Role(StrEnum):
     CLINICIAN = "clinician"
@@ -64,3 +67,20 @@ def permissions_for_roles(
         permissions.update(_ROLE_PERMISSIONS[role])
 
     return frozenset(permissions)
+
+
+def has_permission(
+    principal: CurrentPrincipal,
+    permission: Permission,
+) -> bool:
+    return permission in permissions_for_roles(principal.roles)
+
+
+def ensure_permission(
+    principal: CurrentPrincipal,
+    permission: Permission,
+) -> None:
+    if not has_permission(principal, permission):
+        raise PermissionDeniedError(
+            required_permission=permission,
+        )

@@ -2,10 +2,14 @@ from types import MappingProxyType
 
 import pytest
 
+from fhir_gateway.application.security.current_principal import CurrentPrincipal
+from fhir_gateway.application.security.errors import PermissionDeniedError
 from fhir_gateway.application.security.rbac import (
     Permission,
     Role,
     _ROLE_PERMISSIONS,
+    ensure_permission,
+    has_permission,
     permissions_for_roles,
 )
 
@@ -143,3 +147,83 @@ def test_permissions_for_roles_returns_immutable_permissions():
     permissions = permissions_for_roles(("clinician",))
 
     assert isinstance(permissions, frozenset)
+
+
+def test_has_permission_returns_true_when_principal_has_permission():
+    principal = CurrentPrincipal(
+        subject="clinician-demo-001",
+        roles=("clinician",),
+    )
+
+    assert has_permission(
+        principal,
+        Permission.PATIENT_READ,
+    ) is True
+
+
+def test_has_permission_returns_false_when_principal_lacks_permission():
+    principal = CurrentPrincipal(
+        subject="clinician-demo-001",
+        roles=("clinician",),
+    )
+
+    assert has_permission(
+        principal,
+        Permission.AUDIT_READ,
+    ) is False
+
+
+def test_has_permission_combines_permissions_from_multiple_roles():
+    principal = CurrentPrincipal(
+        subject="multi-role-demo-001",
+        roles=("clinician", "auditor"),
+    )
+
+    assert has_permission(
+        principal,
+        Permission.AUDIT_READ,
+    ) is True
+
+
+def test_has_permission_returns_false_for_unknown_role():
+    principal = CurrentPrincipal(
+        subject="unknown-role-demo-001",
+        roles=("researcher",),
+    )
+
+    assert has_permission(
+        principal,
+        Permission.PATIENT_READ,
+    ) is False
+
+
+def test_ensure_permission_returns_normally_when_permission_is_present():
+    principal = CurrentPrincipal(
+        subject="clinician-demo-001",
+        roles=("clinician",),
+    )
+
+    result = ensure_permission(
+        principal,
+        Permission.PATIENT_READ,
+    )
+
+    assert result is None
+
+
+def test_ensure_permission_raises_when_permission_is_missing():
+    principal = CurrentPrincipal(
+        subject="auditor-demo-001",
+        roles=("auditor",),
+    )
+
+    with pytest.raises(PermissionDeniedError) as exc_info:
+        ensure_permission(
+            principal,
+            Permission.PATIENT_READ,
+        )
+
+    assert (
+        exc_info.value.required_permission
+        is Permission.PATIENT_READ
+    )
